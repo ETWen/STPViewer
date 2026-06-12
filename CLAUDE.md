@@ -1,0 +1,73 @@
+# STPViewer — Claude 專案記憶
+
+## 專案簡介
+
+CAD 3D 檢視器（Windows 桌面 WPF, .NET 8）：STEP/STL/DXF 匯入、STEP 裝配樹、
+點/距離/邊/面/圓/角度/面距量測、兩點對齊（平移）、三點對齊（旋轉+平移）、軸向旋轉 90°、
+干涉檢查、剖面、mm⇄inch、CSV/截圖匯出。
+詳細設計見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+## 技術棧
+
+- .NET 8 WPF（`net8.0-windows`）、MVVM（CommunityToolkit.Mvvm）
+- **CADability**（純 C# CAD kernel）：STEP 匯入、B-rep 幾何、Face 三角化
+- **HelixToolkit.Wpf**：3D viewport、相機、HitTest
+
+## 常用指令
+
+```bash
+dotnet build STPViewer.sln
+dotnet run --project src/STPViewer
+dotnet publish src/STPViewer -c Release -o publish/STPViewer
+```
+
+測試模型：根目錄 `Amphenol RA PHD GPD20-50075_RevB_DC (for Cable).stp`
+
+## 開發慣例
+
+- MVVM：邏輯寫 ViewModel/Service，code-behind 只做純 View 事件（滑鼠拾取轉發）
+- 一個 B-rep Face = 一個 `GeometryModel3D`，用 `Dictionary<Model3D, FaceInfo>` 反查（量測拾取靠這個，**不可移除逐面結構**）
+- 渲染雙模式（降 draw call）：每個 leaf 同時持有 `FacesContent`（逐面，量測用）與 `MergedContent`（整零件合併成 1 個 `GeometryModel3D`，瀏覽用）。
+  `ApplyRenderMode()` 依狀態切 `BodyVisual.Content`：**瀏覽(None)且未剖面 → 合併網格**；量測模式或剖面 → 逐面。
+  合併網格只代表「未剖切、目前位置」幾何；平移後呼叫 `RebuildMerged(leaf)` 同步。`_faceMap`/量測/剖面/干涉一律走 `FacesContent`，與目前顯示哪種內容無關
+- 合併網格的 `BackMaterial`：封閉實體（`SolidCount≥1` 且 `HasBrep`）**不設**（WPF 兩面渲染成本砍半）；開放殼/STL 才設。逐面 `FacesContent` 一律保留 BackMaterial（剖切要看內部）
+- 量測值以 B-rep 為準（圓半徑、邊長、角度），面積/面距用網格近似
+- 量測文字一律 `Func<UnitSystem,string>` 延後產生（mm⇄inch 即時切換）；內部數值永遠存 mm
+- 裝配樹節點（`ModelNodeViewModel`）的可見性/邊線/顏色向下 cascade
+- 剖面只換 `GeometryModel3D.Geometry`（`FaceInfo.Mesh` 保留原始 frozen mesh 供還原與量測）
+- 剛體變換（兩點對齊/旋轉 90°/三點對齊）統一走 `TransformRoot(root, ModOp, Matrix3D)`：B-rep 用 ModOp 對 Solid/Shell 整體 `Modify`
+  （勿逐面位移，會重複位移共用邊），網格/合併網格/邊線/邊界同步重算；變換後量測已失效要 `ClearMeasurements()`。
+  **op 與 m 必須是同一個變換** — 數學在 `Services/RigidAlign.cs`：WPF `Matrix3D` 是「列向量」約定、CADability `ModOp` 是「行向量」約定，
+  `ToModOp` 負責轉置轉換，改動務必跑 `SmokeTest --align-test` 驗證兩種表示一致，否則 B-rep 與顯示網格會悄悄分家
+- 干涉/面距/對齊等運算在背景執行緒；`Freeze()` 幾何後才跨執行緒
+- 匯入在背景執行緒；`Freeze()` 幾何後才跨執行緒
+- Commit 格式：Conventional Commits（`feat:` / `fix:` / `docs:` …）
+
+## 注意事項 / 已知限制
+
+- `Path` 在 service 會與 `CADability.GeoObject.Path` 撞名 → 用 `IOPath` alias
+- CADability 解析大 STEP 慢（39MB/64k 面實測：解析約 276 秒 + 幾何處理），不要改成同步呼叫。
+  解析（`ImportStep.Read`）單執行緒無解；三角化/邊取樣已按 **leaf 平行化**（`_leafWork` 收集 → `Parallel.ForEach`）。
+  **平行粒度只能到 leaf**：同 leaf 的面共用 Edge 物件，面級平行會 race。空 leaf 由 `Prune` 收掉（延後三角化可能全失敗）。
+  平行下 `GetTriangulation` 偶發失敗（實測 64k 面丟 ~8 面，跨 leaf 仍有共享狀態）→ 失敗面收進 `_retry`，平行結束後**循序重試**補回，
+  該 leaf 的 `FinishLeaf` 也延到重試後才跑。**不要移除重試機制**，也不要把平行度開到面級
+- `StepImportService.Progress` 回報匯入階段（解析/三角化耗時），UI 已接狀態列；訊息來自背景執行緒，要 `Dispatcher.BeginInvoke`
+- `LinesVisual3D` 轉動視角逐幀重建，>30k 線段會卡 → 邊線自動關閉邏輯不要移除
+- 邊線採「**一檔一條合併 `LinesVisual3D`**」（掛在 root `EdgeVisual`，由 `RefreshRootEdges` 收集各 leaf `OriginalEdgePoints` 重建）。
+  **不要改回逐 leaf 一條** — 裝配樹零件多時，N 條線每幀重建會嚴重卡頓（實測主因）。leaf 只保留邊線「資料」，渲染統一在 root；
+  可見性/ShowEdges/剖面/平移變更時呼叫 `RefreshRootEdges(root)` 重組合併線
+- 互動中暫停邊線：`Attach` 掛 `Camera.Changed` → `OnCameraMoved` 隱藏邊線、`_interactionTimer`(180ms) 停下後 `ResumeEdges` 顯示；
+  `_edgesSuspended` 為真時 `RefreshRootEdges` 不把線掛回。轉動/縮放/平移時不付邊線重建成本
+- CADability `ImportStep` 對少數 AP242 檔案支援不完整；匯入失敗要 catch 顯示訊息，不可閃退
+- IGES 無 reader；STL 無 B-rep（FaceInfo.BrepFace == null 的分支要保留）
+- 不寫入原始檔（唯讀工具）；WPF 限 Windows，不要嘗試移植 vbox/Linux
+- 干涉檢查需剛好 2 個可見檔案（樹面板勾選）；共面貼合（無穿透）不算干涉、gap≈0 視為配合（match）
+- SmokeTest 工具：`--tree`（裝配樹）、`--clip-test`（剖切數學）、`--interference-test`（干涉相交/分離/貼合）、
+  `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）
+- **絕不要用 PowerShell regex/Set-Content 改 .cs 檔** — Windows PowerShell 5.1 預設編碼會把 UTF-8 中文弄成亂碼（已踩過，靠反編譯 DLL 救回）。文字取代一律用 Edit 工具
+
+## secret/ 與 For_AI/
+
+- `secret/`：本機敏感資料集中地，`secret/*` gitignored（`README.md`、`*.example` 除外）。
+  本專案無 runtime secret，僅有啟動腳本範本。
+- `For_AI/`：AI 協作素材（截圖、草稿），整夾 gitignored。
