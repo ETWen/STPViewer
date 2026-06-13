@@ -82,8 +82,7 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）
 - **絕不要用 PowerShell regex/Set-Content 改 .cs 檔** — Windows PowerShell 5.1 預設編碼會把 UTF-8 中文弄成亂碼（已踩過，靠反編譯 DLL 救回）。文字取代一律用 Edit 工具
 
-## secret/ 與 For_AI/
+## For_AI/
 
-- `secret/`：本機敏感資料集中地，`secret/*` gitignored（`README.md`、`*.example` 除外）。
-  本專案無 runtime secret，僅有啟動腳本範本。
-- `For_AI/`：AI 協作素材（截圖、草稿），整夾 gitignored。
+- `For_AI/`：AI 協作素材（截圖、草稿）+ 測試模型 `*.stp`（客戶料號），整夾 gitignored。
+- 本專案無 runtime secret（離線桌面工具，無 DB/ApiKey），故未保留 `secret/` 資料夾。

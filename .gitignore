@@ -5,12 +5,6 @@ publish/
 *.user
 .vs/
 
-# secret/ 全部忽略，但保留 README 與範本
-secret/*
-!secret/README.md
-!secret/*.example
-!secret/.gitkeep
-
 # AI 協作素材不入 git
 For_AI/
 

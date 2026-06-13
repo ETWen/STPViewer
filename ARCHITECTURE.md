@@ -78,16 +78,11 @@ STPViewer/
 ├── CLAUDE.md                  # 專案記憶 & 給 Claude 的指令
 ├── README.md                  # 快速上手
 ├── ARCHITECTURE.md            # 本文件
-├── .gitignore                 # 含 secret/ 與 For_AI/ 規則
+├── .gitignore                 # For_AI/ + *.stp/*.step（客戶料號）規則
 │
 ├── docs/
 │   ├── decisions/             # 技術決策紀錄（ADR）
 │   └── runbooks/              # 操作手冊
-│
-├── secret/                    # 🚫 gitignored（README.md / *.example 除外）
-│   ├── README.md
-│   ├── run-STPViewer.ps1.example
-│   └── run-STPViewer.sh.example
 │
 ├── For_AI/                    # 🚫 gitignored — AI 協作素材 + 測試模型 *.stp（客戶料號不入 git）
 │
@@ -203,12 +198,9 @@ class MeasurementResult
 
 ## Security Considerations
 
-- 純離線桌面工具，無網路、無帳號、無資料庫
-- 本專案目前無任何 runtime secret；`secret/` 仍依專案慣例建立：
-  - `secret/*` 全部 gitignore，僅 `README.md`、`*.example` 進 git
-  - `run-STPViewer.*.example` 為啟動腳本範本（本專案無 DB/ApiKey，腳本僅做 build+run）
-  - 無 compile-time secret → 不需 `publish-*.example` 腳本
-- `For_AI/` 收 AI 協作素材（截圖、筆記），整夾 gitignore
+- 純離線桌面工具，無網路、無帳號、無資料庫、無任何 runtime / compile-time secret（故未建 `secret/` 資料夾）
+- `For_AI/` 收 AI 協作素材（截圖、筆記）+ 測試模型 `*.stp`（客戶料號），整夾 gitignore
+- `*.stp` / `*.step` 全域 gitignore：客戶 CAD 料號檔不入 git，避免外流
 
 ---
 
