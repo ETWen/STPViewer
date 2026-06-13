@@ -2,6 +2,7 @@
 bin/
 obj/
 publish/
+Publish/          # publish-winapp 打包產物（大小寫明確，Linux/CI 也忽略）
 *.user
 .vs/
 
