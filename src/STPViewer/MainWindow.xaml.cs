@@ -16,6 +16,10 @@ public partial class MainWindow : Window
         DataContext = _vm;
         _vm.Attach(viewport);
         Loaded += MainWindow_Loaded;
+
+        // Gizmo 操作器的放開事件：manipulator 會把 MouseUp 標成 handled，需 handledEventsToo 才收得到
+        viewport.AddHandler(MouseLeftButtonUpEvent,
+            new MouseButtonEventHandler((_, _) => _vm.OnGizmoMouseUp()), handledEventsToo: true);
     }
 
     /// <summary>支援命令列帶檔開啟：STPViewer.exe a.stp b.stl …</summary>

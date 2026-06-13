@@ -179,6 +179,7 @@ class MeasurementResult
 | 三點對齊 | 模式「三點」+ 來源檔 3 點、目標檔 3 對應點 | 旋轉+平移剛體變換（點1精確貼合、1→2 方向對齊、三點平面對齊；`RigidAlign`） |
 | 旋轉 | 樹面板選檔案 + 工具列 ↻X/↻Y/↻Z | 繞檔案中心 +90°（連按累加；方向不合時先轉正再對齊） |
 | 拖曳 | 模式「🖐 拖曳」（手形游標）+ 左鍵按住零件拖 | 沿螢幕平面移動該檔案，放開烘進 B-rep（拖曳中僅暫時 Transform，不卡） |
+| 操作器 | 「⊹ 操作器」+ 樹面板選檔案 | XYZ 箭頭沿軸移動、旋轉環繞軸轉任意角度（與視角無關）；每次放開烘進 B-rep |
 | 干涉 | 工具列「🧩 干涉」（需剛好 2 個可見檔案） | 相交→紅色交線+相交三角形對數；無相交→最小間隙 gap（≈0 即配合 match） |
 | 剖面 | 工具列「✂ 剖面」+ 軸向/位置/反向 | CPU 裁切渲染網格（原始幾何保留，量測仍精確） |
 | 單位 | 工具列 mm ⇄ in | 既有量測（清單+3D 標籤）即時換算 |
@@ -325,6 +326,14 @@ NuGet 相依（自動還原）：`CADability`、`HelixToolkit.Wpf`、`CommunityT
 
 > v0.2.1 修正：拖曳放開時清除暫時位移誤用 `Transform = null`，導致下次 `FindHits` 命中該檔案時
 > HelixToolkit `GetTransform` 對 null transform `Add` 而 crash。改用 `Transform3D.Identity`。
+
+### Phase 10 — Gizmo 三軸操作器（工作量：M）
+- [x] 「⊹ 操作器」toggle — 對樹面板選取的檔案顯示 Helix `TranslateManipulator` ×3（XYZ 紅綠藍箭頭）+ `RotateManipulator` ×3（旋轉環），尺寸隨檔案 Bounds 自適應
+- [x] 操作器綁定代理 `ModelVisual3D`，拖動中代理 Transform 即時套到目標所有 BodyVisual（暫時、GPU 端）；邊線暫停
+- [x] 放開滑鼠（`handledEventsToo` 捕捉）→ `Dispatcher.BeginInvoke` 延後 `TransformRoot` 烘進 B-rep、操作器歸零並移到新中心
+- [x] 換樹選取自動換目標；目標被移除自動收掉；暫時 Transform 清除用 `Identity`（非 null）
+
+**驗收：** 拖 X 箭頭零件僅沿世界 X 移動（與視角無關）；拖環任意角度旋轉；放開後量測/干涉與顯示位置一致
 
 ---
 

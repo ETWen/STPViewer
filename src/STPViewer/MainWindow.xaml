@@ -62,6 +62,8 @@
                 <ToggleButton Style="{StaticResource ModeButton}"
                               ToolTip="拖曳模式：左鍵按住零件沿螢幕平面拖動，放開定位（深度方向先轉視角再拖）"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Drag}">🖐 拖曳</ToggleButton>
+                <ToggleButton IsChecked="{Binding GizmoEnabled}" Padding="8,4" FontSize="13"
+                              ToolTip="三軸操作器：對樹面板選取的檔案顯示 XYZ 箭頭（沿軸移動）與旋轉環（繞軸轉任意角度），每次放開即定位">⊹ 操作器</ToggleButton>
                 <Button Command="{Binding CheckInterferenceCommand}" Padding="8,4" FontSize="13"
                         ToolTip="干涉檢查：檢查 2 個可見檔案是否相交（match 判定）；無相交時回報最小間隙">🧩 干涉</Button>
                 <Separator />
