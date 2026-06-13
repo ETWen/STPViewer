@@ -32,10 +32,35 @@ public partial class MainWindow : Window
 
     private void Viewport_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        // Shift+左鍵 = 平移（PanGesture2），不觸發量測
+        // Shift+左鍵 = 平移（PanGesture2），不觸發量測/拖曳
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+
+        if (_vm.CurrentMode == STPViewer.Models.MeasureMode.Drag)
+        {
+            if (_vm.OnDragStart(e.GetPosition(viewport.Viewport)))
+            {
+                viewport.CaptureMouse(); // 拖出視窗外也持續收到 Move/Up
+                e.Handled = true;
+            }
+            return;
+        }
         _vm.OnViewportClick(e.GetPosition(viewport.Viewport));
     }
+
+    private void Viewport_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed)
+            _vm.OnDragMove(e.GetPosition(viewport.Viewport));
+    }
+
+    private void Viewport_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_vm.OnDragEnd())
+            viewport.ReleaseMouseCapture();
+    }
+
+    private void Viewport_LostMouseCapture(object sender, MouseEventArgs e) =>
+        _vm.OnDragEnd(); // 捕捉意外中斷（Alt+Tab 等）→ 以目前位置定格，不留懸空 Transform
 
     private void Window_DragOver(object sender, DragEventArgs e)
     {

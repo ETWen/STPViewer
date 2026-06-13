@@ -102,7 +102,7 @@ STPViewer/
         │
         ├── Models/
         │   ├── FaceInfo.cs            # GeometryModel3D ↔ B-rep Face 對照（STL 為 null）
-        │   ├── MeasureMode.cs         # enum: None/Point/Distance/Edge/Face/Circle/Angle/FaceDistance/Align/Align3/Interference
+        │   ├── MeasureMode.cs         # enum: None/Point/Distance/Edge/Face/Circle/Angle/FaceDistance/Align/Align3/Drag/Interference
         │   ├── MeasurementResult.cs   # 量測結果（雙單位 lambda、3D 標籤同步）
         │   └── UnitSystem.cs          # mm/inch + Units 格式化
         │
@@ -147,7 +147,7 @@ class FaceInfo
 }
 
 enum MeasureMode { None, Point, Distance, Edge, Face, Circle,
-                   Angle, FaceDistance, Align, Interference }
+                   Angle, FaceDistance, Align, Align3, Drag, Interference }
 
 class MeasurementResult
 {
@@ -178,6 +178,7 @@ class MeasurementResult
 | 對齊 | 模式「對齊」+ 點「要移動零件」上一點、再點目標點 | 純平移該檔案使點1貼到點2（B-rep 用 `ModOp` 整體位移，量測清空） |
 | 三點對齊 | 模式「三點」+ 來源檔 3 點、目標檔 3 對應點 | 旋轉+平移剛體變換（點1精確貼合、1→2 方向對齊、三點平面對齊；`RigidAlign`） |
 | 旋轉 | 樹面板選檔案 + 工具列 ↻X/↻Y/↻Z | 繞檔案中心 +90°（連按累加；方向不合時先轉正再對齊） |
+| 拖曳 | 模式「🖐 拖曳」（手形游標）+ 左鍵按住零件拖 | 沿螢幕平面移動該檔案，放開烘進 B-rep（拖曳中僅暫時 Transform，不卡） |
 | 干涉 | 工具列「🧩 干涉」（需剛好 2 個可見檔案） | 相交→紅色交線+相交三角形對數；無相交→最小間隙 gap（≈0 即配合 match） |
 | 剖面 | 工具列「✂ 剖面」+ 軸向/位置/反向 | CPU 裁切渲染網格（原始幾何保留，量測仍精確） |
 | 單位 | 工具列 mm ⇄ in | 既有量測（清單+3D 標籤）即時換算 |
@@ -313,6 +314,14 @@ NuGet 相依（自動還原）：`CADability`、`HelixToolkit.Wpf`、`CommunityT
 - [x] SmokeTest `--align-test`：已知變換還原（誤差 ~1e-15）、ModOp↔Matrix3D 一致、共線拒絕
 
 **驗收：** AlignTest 8 項全過；公母連接器可旋轉擺正後三點對齊插合，再用干涉檢查驗證配合
+
+### Phase 9 — 拖曳模式（工作量：M）
+- [x] 🖐 拖曳模式（`MeasureMode.Drag`）— 手形游標，左鍵按住零件沿螢幕平面拖動（Helix `UnProject` 投影到過錨點、面向相機的平面）
+- [x] 拖曳中僅掛暫時 `TranslateTransform3D`（GPU 端，大組件不卡），放開一次性 `TranslateRoot` 烘進 B-rep（量測精度不受影響）
+- [x] `_mergedMap`（合併網格 → leaf 反查）支援瀏覽渲染下的 hit-test；拖曳中邊線暫停
+- [x] 滑鼠捕捉（拖出視窗持續）、意外中斷以當前位置定格
+
+**驗收：** 大組件手形拖曳流暢；放開後干涉/量測結果與拖曳位置一致；右鍵視角操作不受影響
 
 ---
 

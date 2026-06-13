@@ -59,6 +59,9 @@
                         ToolTip="選取的檔案繞 Y 軸 +90°">↻Y</Button>
                 <Button Command="{Binding RotateRootCommand}" CommandParameter="Z" Padding="6,4" FontSize="13"
                         ToolTip="選取的檔案繞 Z 軸 +90°">↻Z</Button>
+                <ToggleButton Style="{StaticResource ModeButton}"
+                              ToolTip="拖曳模式：左鍵按住零件沿螢幕平面拖動，放開定位（深度方向先轉視角再拖）"
+                              IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Drag}">🖐 拖曳</ToggleButton>
                 <Button Command="{Binding CheckInterferenceCommand}" Padding="8,4" FontSize="13"
                         ToolTip="干涉檢查：檢查 2 個可見檔案是否相交（match 判定）；無相交時回報最小間隙">🧩 干涉</Button>
                 <Separator />
@@ -178,7 +181,20 @@
                                ShowViewCube="True" ShowCoordinateSystem="True"
                                ShowFrameRate="False" ZoomExtentsWhenLoaded="True"
                                PanGesture="MiddleClick" PanGesture2="Shift+LeftClick"
-                               MouseLeftButtonDown="Viewport_MouseLeftButtonDown">
+                               MouseLeftButtonDown="Viewport_MouseLeftButtonDown"
+                               MouseMove="Viewport_MouseMove"
+                               MouseLeftButtonUp="Viewport_MouseLeftButtonUp"
+                               LostMouseCapture="Viewport_LostMouseCapture">
+                <h:HelixViewport3D.Style>
+                    <Style TargetType="h:HelixViewport3D">
+                        <Style.Triggers>
+                            <DataTrigger Value="True"
+                                         Binding="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Drag}">
+                                <Setter Property="Cursor" Value="Hand" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </h:HelixViewport3D.Style>
                 <h:HelixViewport3D.Background>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                         <GradientStop Color="#FFEAF2F8" Offset="0" />

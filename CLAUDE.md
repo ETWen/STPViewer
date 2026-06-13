@@ -4,7 +4,7 @@
 
 CAD 3D 檢視器（Windows 桌面 WPF, .NET 8）：STEP/STL/DXF 匯入、STEP 裝配樹、
 點/距離/邊/面/圓/角度/面距量測、兩點對齊（平移）、三點對齊（旋轉+平移）、軸向旋轉 90°、
-干涉檢查、剖面、mm⇄inch、CSV/截圖匯出。
+拖曳模式（手形游標直接拖零件）、干涉檢查、剖面、mm⇄inch、CSV/截圖匯出。
 詳細設計見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 技術棧
@@ -21,7 +21,7 @@ dotnet run --project src/STPViewer
 dotnet publish src/STPViewer -c Release -o publish/STPViewer
 ```
 
-測試模型：根目錄 `Amphenol RA PHD GPD20-50075_RevB_DC (for Cable).stp`
+測試模型：根目錄 `test.stp`（Amphenol RA PHD 座端，小檔）與 `Amphenol PHD to PHD Cable 10201248 1.stp`（39MB 大組件，效能測試用）
 
 ## 開發慣例
 
@@ -39,6 +39,9 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   （勿逐面位移，會重複位移共用邊），網格/合併網格/邊線/邊界同步重算；變換後量測已失效要 `ClearMeasurements()`。
   **op 與 m 必須是同一個變換** — 數學在 `Services/RigidAlign.cs`：WPF `Matrix3D` 是「列向量」約定、CADability `ModOp` 是「行向量」約定，
   `ToModOp` 負責轉置轉換，改動務必跑 `SmokeTest --align-test` 驗證兩種表示一致，否則 B-rep 與顯示網格會悄悄分家
+- 拖曳模式（`MeasureMode.Drag`）：拖曳中只掛**暫時 `TranslateTransform3D`**（GPU 免費），放開才一次性 `TranslateRoot` 烘進 B-rep —
+  **不要改成拖曳中逐幀 TransformRoot**（大檔每幀重建網格會卡死）。2D→3D 用 Helix `UnProject`（過錨點、法向=相機 LookDirection 的平面）。
+  合併網格的 hit-test 走 `_mergedMap`（合併 Model → leaf）；拖曳中邊線用 `_edgesSuspended` 暫停
 - 干涉/面距/對齊等運算在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - 匯入在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - Commit 格式：Conventional Commits（`feat:` / `fix:` / `docs:` …）
