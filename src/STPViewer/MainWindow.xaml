@@ -4,7 +4,7 @@
         xmlns:h="http://helix-toolkit.org/wpf"
         xmlns:conv="clr-namespace:STPViewer.Converters"
         xmlns:vm="clr-namespace:STPViewer.ViewModels"
-        Title="STPViewer V0.3.1 — STP/STEP 3D 檢視器"
+        Title="STPViewer — STP/STEP 3D 檢視器"
         Height="820" Width="1320"
         WindowStartupLocation="CenterScreen"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">

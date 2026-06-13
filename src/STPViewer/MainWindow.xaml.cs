@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using STPViewer.Services;
@@ -13,6 +14,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // 版號單一來源 = csproj <Version>；標題執行時讀，避免寫死
+        var v = Assembly.GetExecutingAssembly().GetName().Version!;
+        Title = $"STPViewer V{v.Major}.{v.Minor}.{v.Build} — STP/STEP 3D 檢視器";
         DataContext = _vm;
         _vm.Attach(viewport);
         _vm.AttachOverlay(gizmoOverlay);
