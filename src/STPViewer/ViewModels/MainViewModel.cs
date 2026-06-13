@@ -935,9 +935,11 @@ public partial class MainViewModel : ObservableObject
         ModelNodeViewModel root = _dragRoot;
         Vector3D delta = _dragApplied;
 
+        // 清除暫時位移：必須用 Identity，不可用 null —— HelixToolkit GetTransform 對 child.Transform
+        // 不做 null 檢查（Children.Add(null) 會拋「無法新增空值到集合中」），下次 FindHits 即 crash
         foreach (ModelNodeViewModel l in root.Leaves())
             if (l.BodyVisual is not null)
-                l.BodyVisual.Transform = null;
+                l.BodyVisual.Transform = Transform3D.Identity;
         _dragRoot = null;
         _dragTransform = null;
         _dragApplied = default;

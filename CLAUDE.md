@@ -42,6 +42,9 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 - 拖曳模式（`MeasureMode.Drag`）：拖曳中只掛**暫時 `TranslateTransform3D`**（GPU 免費），放開才一次性 `TranslateRoot` 烘進 B-rep —
   **不要改成拖曳中逐幀 TransformRoot**（大檔每幀重建網格會卡死）。2D→3D 用 Helix `UnProject`（過錨點、法向=相機 LookDirection 的平面）。
   合併網格的 hit-test 走 `_mergedMap`（合併 Model → leaf）；拖曳中邊線用 `_edgesSuspended` 暫停
+- ⚠️ **`Visual3D.Transform` 永遠不要設成 `null`，清除要用 `Transform3D.Identity`**。HelixToolkit `Viewport3DHelper.GetTransform`
+  對 `child.Transform` 沒做 null 檢查（`GeneralTransform3DGroup.Children.Add(null)` → 拋「無法新增空值到集合中」），
+  之後任何 `FindHits` 都會 crash。v0.2.1 修的就是拖曳放開時把 BodyVisual.Transform 設 null（拖過一次後再點擊就炸）
 - 干涉/面距/對齊等運算在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - 匯入在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - Commit 格式：Conventional Commits（`feat:` / `fix:` / `docs:` …）

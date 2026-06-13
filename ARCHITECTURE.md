@@ -323,6 +323,9 @@ NuGet 相依（自動還原）：`CADability`、`HelixToolkit.Wpf`、`CommunityT
 
 **驗收：** 大組件手形拖曳流暢；放開後干涉/量測結果與拖曳位置一致；右鍵視角操作不受影響
 
+> v0.2.1 修正：拖曳放開時清除暫時位移誤用 `Transform = null`，導致下次 `FindHits` 命中該檔案時
+> HelixToolkit `GetTransform` 對 null transform `Add` 而 crash。改用 `Transform3D.Identity`。
+
 ---
 
 ## Future Extensions（下一輪）
