@@ -89,10 +89,9 @@ STPViewer/
 │   ├── run-STPViewer.ps1.example
 │   └── run-STPViewer.sh.example
 │
-├── For_AI/                    # 🚫 gitignored — AI 協作素材
+├── For_AI/                    # 🚫 gitignored — AI 協作素材 + 測試模型 *.stp（客戶料號不入 git）
 │
 ├── STPViewer.sln
-├── *.stp                      # 根目錄現有測試模型（Amphenol connector）
 │
 └── src/
     └── STPViewer/
@@ -334,6 +333,14 @@ NuGet 相依（自動還原）：`CADability`、`HelixToolkit.Wpf`、`CommunityT
 - [x] 換樹選取自動換目標；目標被移除自動收掉；暫時 Transform 清除用 `Identity`（非 null）
 
 **驗收：** 拖 X 箭頭零件僅沿世界 X 移動（與視角無關）；拖環任意角度旋轉；放開後量測/干涉與顯示位置一致
+
+### Phase 11 — Gizmo always-on-top 疊圖層（工作量：M）
+- [x] 操作器移到獨立透明 `Viewport3D`（`gizmoOverlay`）疊在主視窗上 → 不在主場景，**永不被實體遮擋、永遠可抓**
+- [x] `_overlayCamera` 在主相機 `Changed` 時同步（Position/方向/FOV/near-far）；同尺寸 → 投影一致、操作器精準貼合
+- [x] raw Viewport3D 空白處不吃滑鼠 → 穿透回主視窗（orbit/縮放/量測不受影響）；`IsHitTestVisible` 綁 `GizmoEnabled`
+- [x] 放開事件改掛 overlay（`handledEventsToo`）；`_gizmoBakePending` 防同次重複烘焙
+
+**驗收：** 操作器從任何視角都浮在零件上可見可抓；開啟操作器時右鍵 orbit / 量測仍正常（穿透）
 
 ---
 

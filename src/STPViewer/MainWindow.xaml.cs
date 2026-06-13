@@ -15,10 +15,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _vm;
         _vm.Attach(viewport);
+        _vm.AttachOverlay(gizmoOverlay);
         Loaded += MainWindow_Loaded;
 
-        // Gizmo 操作器的放開事件：manipulator 會把 MouseUp 標成 handled，需 handledEventsToo 才收得到
-        viewport.AddHandler(MouseLeftButtonUpEvent,
+        // Gizmo 操作器放在疊圖層；manipulator 會把 MouseUp 標 handled，需 handledEventsToo 才收得到
+        gizmoOverlay.AddHandler(MouseLeftButtonUpEvent,
             new MouseButtonEventHandler((_, _) => _vm.OnGizmoMouseUp()), handledEventsToo: true);
     }
 

@@ -13,3 +13,7 @@ secret/*
 
 # AI 協作素材不入 git
 For_AI/
+
+# 客戶 CAD 料號檔不入 git（避免外流）；測試模型放 For_AI/
+*.stp
+*.step

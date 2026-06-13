@@ -21,7 +21,8 @@ dotnet run --project src/STPViewer
 dotnet publish src/STPViewer -c Release -o publish/STPViewer
 ```
 
-測試模型：根目錄 `test.stp`（Amphenol RA PHD 座端，小檔）與 `Amphenol PHD to PHD Cable 10201248 1.stp`（39MB 大組件，效能測試用）
+測試模型放 `For_AI/`（gitignored，**客戶料號不入 git**）：`For_AI/test.stp`（Amphenol RA PHD 座端，小檔）與
+`For_AI/Amphenol PHD to PHD Cable 10201248 1.stp`（39MB 大組件，效能測試用）。`*.stp`/`*.step` 已全域 gitignore
 
 ## 開發慣例
 
@@ -50,6 +51,10 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   代理 Transform 變更（`DependencyPropertyDescriptor.AddValueChanged`）即時套到目標 BodyVisual（暫時）；
   **放開滑鼠才 `TransformRoot` 烘焙** — MouseUp 被 manipulator 標 handled，MainWindow 用 `AddHandler(..., handledEventsToo: true)` 才收得到。
   烘焙用 `Dispatcher.BeginInvoke` 延後到 manipulator 自身事件處理完，避免 reentrancy；`_gizmoBaking` 旗標防 Transform 歸零的回呼重入
+- Gizmo always-on-top（v0.3.1）：操作器放在獨立透明 `Viewport3D`（`gizmoOverlay`）疊在主視窗上，**不在主場景所以永不被實體遮擋**。
+  `_overlayCamera` 在主 `Camera.Changed` 時同步主相機（Position/方向/FOV/near-far）；raw Viewport3D 空白處不吃滑鼠 → 穿透回主視窗（orbit/量測正常）；
+  `IsHitTestVisible` 綁 `GizmoEnabled`。Manipulator 是 `UIElement3D`、用 `GetViewport3D()` 抓所在層相機，故在疊圖層用同步相機運作。
+  放開事件靠 overlay 的 `AddHandler(MouseLeftButtonUp, handledEventsToo:true)`（manipulator 會標 handled），`_gizmoBakePending` 防同次重複烘焙
 - 干涉/面距/對齊等運算在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - 匯入在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - Commit 格式：Conventional Commits（`feat:` / `fix:` / `docs:` …）

@@ -4,7 +4,7 @@
         xmlns:h="http://helix-toolkit.org/wpf"
         xmlns:conv="clr-namespace:STPViewer.Converters"
         xmlns:vm="clr-namespace:STPViewer.ViewModels"
-        Title="STPViewer — STP/STEP 3D 檢視器"
+        Title="STPViewer V0.3.1 — STP/STEP 3D 檢視器"
         Height="820" Width="1320"
         WindowStartupLocation="CenterScreen"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
@@ -205,6 +205,11 @@
                 </h:HelixViewport3D.Background>
                 <h:DefaultLights />
             </h:HelixViewport3D>
+
+            <!-- 操作器疊圖層：透明 Viewport3D 疊在主視窗上、永遠最上層。
+                 只在操作器開啟時 IsHitTestVisible（否則空白處滑鼠才會穿透回主視窗） -->
+            <Viewport3D x:Name="gizmoOverlay" Grid.Column="1"
+                        IsHitTestVisible="{Binding GizmoEnabled}" />
 
             <!-- ─── 量測結果面板 ─── -->
             <GroupBox Grid.Column="2" Header="量測結果" Margin="4">
