@@ -65,8 +65,11 @@ STEP（`.stp` / `.step`）檔案做確認與量測，不需要安裝 SolidWorks 
 
 資料流：`*.stp → CADability B-rep → 三角網格(渲染) + B-rep 參照(量測) → Helix Viewport`
 
-每個 Face 對應一個 `GeometryModel3D`，並登錄到 `Dictionary<GeometryModel3D, FaceInfo>`，
-HitTest 命中後可反查回 B-rep Face / Edge 做精確量測。
+每個 Face 對應一個 `GeometryModel3D`（`FacesContent`，剖面模式渲染用），並登錄到 `_faceMap` 反查 B-rep Face / Edge。
+
+效能：非剖面（瀏覽＋量測）渲染**整零件合併網格**（`MergedContent`，每檔 1 個 model），量測 HitTest 改打合併網格、
+用命中三角形的頂點 index 經 `_mergedFaceRanges` 二分搜尋（`ResolveMergedFace`）反查回是哪個面 —
+量測模式不再掛數萬個逐面 model，大組件量測下轉動視角與瀏覽同樣流暢（v0.3.2）。
 
 ---
 
@@ -333,6 +336,24 @@ NuGet 相依（自動還原）：`CADability`、`HelixToolkit.Wpf`、`CommunityT
 - [x] 放開事件改掛 overlay（`handledEventsToo`）；`_gizmoBakePending` 防同次重複烘焙
 
 **驗收：** 操作器從任何視角都浮在零件上可見可抓；開啟操作器時右鍵 orbit / 量測仍正常（穿透）
+
+---
+
+## Development Phases — 第四輪（效能，全部完成）
+
+### Phase 12 — 大組件量測流暢度（工作量：M）
+
+**問題：** 大檔（39MB / 64k 面）瀏覽轉動順，但一進量測模式轉動就嚴重卡頓。
+**根因：** 量測模式渲染逐面（每個 B-rep 面 1 個 `GeometryModel3D`），64k 面 = 64k draw call，
+WPF retained-mode 每幀重走 visual tree → frame rate 崩。瀏覽模式因渲染合併網格（每檔 1 個 model）所以順。
+
+- [x] 量測拾取改打**合併網格** + 三角形頂點 index 反查面（`_mergedFaceRanges` + `ResolveMergedFace` 二分搜尋）
+- [x] `ApplyRenderMode()` 改為：非剖面（瀏覽＋量測）→ 合併網格；剖面 → 逐面。量測模式不再掛數萬個逐面 model
+- [x] `BuildMergedMesh` 依面序串接（無焊接共用頂點），匯入時同步記錄每面頂點起始邊界 + `FaceInfo`
+- [x] 相機暫停事件改訂 `HelixViewport3D.CameraChanged`（控制項層級）＋ `Camera.Changed` 保底，避免相機實例被換掉時訂閱孤兒化
+- [x] 驗證：WPF 3D hit-test 純幾何不剔背面 → 打單面合併網格仍命中孔內壁；圓/面/邊/角度/面距/剖面量測數值與逐面一致
+
+**驗收：** 大組件量測模式下轉動視角與瀏覽同樣流暢；圓孔/面/邊/角度/面距量測精度不變；剖面模式量測仍正常
 
 ---
 

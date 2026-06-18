@@ -1,71 +1,199 @@
 # STPViewer
 
-STP/STEP 3D 檢視器（Windows 桌面程式，C# .NET 8 WPF）— 多檔匯入、圖層管理、點/距離/邊/面/圓量測。
+[![English](https://img.shields.io/badge/English-2ea043.svg)](README.md) [![繁體中文](https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-lightgrey.svg)](README.zh-TW.md)
 
-![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg) ![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg) ![UI](https://img.shields.io/badge/UI-WPF-blueviolet.svg)
+> A Windows desktop 3D viewer for STP/STEP CAD files — multi-file import, assembly tree, and point / distance / edge / face / circle measurement. Built with C# .NET 8 WPF.
 
-## 功能
+![version](https://img.shields.io/badge/version-0.3.2-blue.svg) ![platform](https://img.shields.io/badge/platform-Windows-0078D6.svg) ![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg) ![UI](https://img.shields.io/badge/UI-WPF-blueviolet.svg)
 
-- **多檔匯入**：STEP / STL / DXF — 工具列匯入（可複選）、拖放到視窗、或命令列 `STPViewer.exe a.stp b.stl`
-- **裝配樹**：STEP product structure 還原成樹（組件→零件），逐節點 顯示/隱藏、換色（cascade）、Zoom-to；檔案層級可移除、開關輪廓邊線
-- **量測**（工具列切換模式，點擊模型）：
-  | 模式 | 輸出 |
+---
+
+## 📖 Table of Contents
+
+- [✨ Features](#-features)
+- [💻 System Requirements](#-system-requirements)
+- [📥 Installation](#-installation)
+- [🚀 Quick Start](#-quick-start)
+- [📚 Usage Guide](#-usage-guide)
+- [🔨 Building from Source](#-building-from-source)
+- [📁 Project Structure](#-project-structure)
+- [⚠️ Known Limitations](#️-known-limitations)
+- [🤝 Contributing](#-contributing)
+- [📜 Version History](#-version-history)
+- [🙏 Acknowledgments](#-acknowledgments)
+
+---
+
+## ✨ Features
+
+Open mechanical STEP parts for quick review and measurement without a heavyweight CAD suite (SolidWorks / Creo).
+
+- **Multi-file import** — STEP / STL / DXF, via the toolbar (multi-select), drag-and-drop, or command line: `STPViewer.exe a.stp b.stl`
+- **Assembly tree** — STEP product structure restored as a tree (assembly → part); per-node show/hide, recolor (cascades to children), zoom-to; file-level remove and outline-edge toggle
+- **Measurement** (toolbar mode toggle, then click the model):
+
+  | Mode | Output |
   |---|---|
-  | 📍 點 | XYZ 座標（自動吸附鄰近 B-rep 頂點） |
-  | 📏 距離 | 兩點直線距離 + ΔX/ΔY/ΔZ |
-  | 📐 邊 | 直線長 / 曲線長 / 圓弧長+半徑 |
-  | ⬛ 面 | 面積（網格近似）+ 曲面類型（平面法向量、圓柱半徑/軸向） |
-  | ⭕ 圓 | 圓心 / 半徑 / 直徑 / 周長 |
-  | ∠ 角度 | 兩面（法向量）/ 兩直線邊 夾角 + 補角 |
-  | ⇔ 面距 | 面到面最短距離（網格近似）+ 最近點對 |
-  | ⤚ 對齊 | 點「要移動零件」一點 + 目標點 → 純平移該檔案使兩點貼合（B-rep 整體位移） |
-  | 🎯 三點 | 來源檔 3 特徵點 + 目標檔 3 對應點 → 旋轉+平移一次貼合（方向不同也能對） |
-- **旋轉**：樹面板選檔案 + 工具列 ↻X/↻Y/↻Z 繞中心 +90°（擺正方向用，連按累加）
-- **拖曳** 🖐：手形游標模式，左鍵按住零件沿螢幕平面拖動、放開定位（粗定位用；精確貼合用對齊）；右鍵轉視角不受影響
-- **操作器** ⊹：樹面板選檔案 → 顯示 XYZ 三色箭頭 + 旋轉環（Fusion 360 風格）；拖箭頭沿該軸移動（與視角無關，適合沿插合軸推進）、拖環繞軸轉任意角度，放開即定位。操作器永遠浮在最上層、不被實體遮擋
-- **干涉檢查** 🧩：勾選剛好 2 個可見檔案 → 相交時顯示紅色干涉交線 + 相交三角形對數；無相交時回報最小間隙 gap（gap≈0 即為配合 match，共面貼合不算干涉）
-- **剖面**：✂ 開關 + X/Y/Z 軸 + 位置滑桿 + 反向；CPU 網格裁切，原始幾何保留（量測不受影響）
-- **單位**：mm ⇄ inch 一鍵切換，既有量測（清單與 3D 標籤）即時換算
-- **匯出**：量測結果 CSV（Excel 中文不亂碼）、3D 視圖 PNG 截圖（2x 解析度）
-- **視角**：右鍵旋轉、滾輪縮放、中鍵平移、ViewCube
+  | 📍 Point | XYZ coordinate (auto-snaps to nearby B-rep vertex) |
+  | 📏 Distance | Straight-line distance + ΔX/ΔY/ΔZ |
+  | 📐 Edge | Line length / curve length / arc length + radius |
+  | ⬛ Face | Area (mesh approximation) + surface type (plane normal, cylinder radius/axis) |
+  | ⭕ Circle | Center / radius / diameter / circumference |
+  | ∠ Angle | Angle between two faces (normals) or two straight edges + supplement |
+  | ⇔ Face distance | Shortest face-to-face distance (mesh approximation) + closest point pair |
+  | ⤚ Align (2-pt) | Pick a point on the moving part + a target point → pure translation so the two points coincide |
+  | 🎯 Align (3-pt) | 3 source points + 3 target points → rotation + translation in one shot |
 
-## 快速開始
+- **Rotate** — select a file in the tree, then ↻X / ↻Y / ↻Z to rotate +90° about its center (for re-orienting; repeat to accumulate)
+- **Drag** 🖐 — hand-cursor mode; hold the left button to drag a part along the screen plane, release to place (right-button view orbit unaffected)
+- **Gizmo** ⊹ — select a file → XYZ tri-color arrows + rotation rings (Fusion 360 style); drag an arrow to move along that axis (view-independent), drag a ring to rotate. Always floats on top, never occluded
+- **Interference check** 🧩 — with exactly 2 visible files, shows red intersection curves + intersecting triangle-pair count; otherwise reports the minimum gap (gap ≈ 0 means a fit/match; coplanar contact is not interference)
+- **Section plane** ✂ — X/Y/Z axis + position slider + flip; CPU mesh clipping, original geometry preserved (measurement stays exact)
+- **Units** — one-click mm ⇄ inch; existing measurements (list + 3D labels) convert live
+- **Export** — measurement results to CSV (UTF-8 BOM, no mojibake in Excel) and a 2× PNG screenshot of the 3D view
+- **View** — right-button orbit, wheel zoom, middle-button pan, ViewCube
+
+Measurement principle: edge length, circle radius and angles use **exact B-rep values**; area is a triangle-mesh sum approximation (triangulation precision adapts to model size, 0.02–0.5 mm).
+
+---
+
+## 💻 System Requirements
+
+| Item | Requirement |
+|------|-------------|
+| OS | Windows 10 / 11 (x64) |
+| Runtime | .NET 8 Desktop Runtime (framework-dependent build) — or none for the portable build |
+| Build SDK | .NET 8 SDK (only to build from source) |
+
+---
+
+## 📥 Installation
+
+Download a release build and run it — no install required.
+
+- **Framework-dependent** (smaller): requires the .NET 8 Desktop Runtime. Run `STPViewer v0.3.2.exe`.
+- **Portable** (self-contained): runtime bundled, no install / admin. Run `STPViewer v0.3.2.exe`.
+
+Or build from source (see below).
 
 ```bash
+git clone https://github.com/ETWen/STPViewer.git
+cd STPViewer
+dotnet build STPViewer.sln
+```
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# Build and run
 dotnet build STPViewer.sln
 dotnet run --project src/STPViewer
 
-# 發佈免安裝資料夾
+# Publish a no-install folder
 dotnet publish src/STPViewer -c Release -o publish/STPViewer
 ```
 
-無 UI 匯入管線與幾何數學驗證：
+Then import a `.stp` file (toolbar **Import**, drag-and-drop, or command-line argument), pick a measurement mode, and click the model.
+
+---
+
+## 📚 Usage Guide
+
+1. **Import** one or more CAD files. Each file becomes a root in the assembly tree and the view zooms to fit.
+2. **Navigate** the tree — toggle visibility, recolor, zoom to a node, or remove a file.
+3. **Measure** — pick a mode on the toolbar (Point / Distance / Edge / Face / Circle / Angle / Face-distance), then click the model. Results appear in the right-hand panel; delete individually or clear all.
+4. **Assemble** — use Align (2-pt / 3-pt), Rotate, Drag, or the Gizmo to position parts; then run the Interference check to verify fit.
+5. **Section** — toggle ✂, choose an axis, and slide to cut through the model; measurement stays exact on the original geometry.
+6. **Export** — save measurements to CSV or capture a 2× PNG of the view.
+
+Headless import-pipeline and geometry-math verification (no UI):
 
 ```bash
-dotnet run --project tools/SmokeTest -- "path\to\model.stp"   # 匯入 + 裝配樹
-dotnet run --project tools/SmokeTest -- --clip-test           # 剖切裁切數學
-dotnet run --project tools/SmokeTest -- --interference-test   # 干涉 相交/分離/貼合
-dotnet run --project tools/SmokeTest -- --align-test          # 三點對齊剛體變換數學
+dotnet run --project tools/SmokeTest -- "path\to\model.stp"   # import + assembly tree
+dotnet run --project tools/SmokeTest -- --clip-test           # section clipping math
+dotnet run --project tools/SmokeTest -- --interference-test   # interference: intersect / separate / contact
+dotnet run --project tools/SmokeTest -- --align-test          # 3-point rigid-transform math
 ```
 
-## 技術棧
+---
 
-| 元件 | 用途 |
-|---|---|
-| [CADability](https://github.com/SOFAgh/CADability)（純 C#） | STEP 匯入、B-rep 幾何核心、面三角化 |
-| [HelixToolkit.Wpf](https://github.com/helix-toolkit/helix-toolkit) | 3D viewport、相機操作、HitTest |
-| CommunityToolkit.Mvvm | MVVM |
+## 🔨 Building from Source
 
-量測原則：邊長、圓半徑等取 **B-rep 精確值**；面積為三角網格加總近似（三角化精度依模型尺寸自適應 0.02–0.5 mm）。
+```bash
+dotnet build STPViewer.sln -c Debug
+dotnet run --project src/STPViewer
+dotnet publish src/STPViewer -c Release -o publish/STPViewer
+```
 
-## 已知限制
+NuGet dependencies (restored automatically): `CADability`, `HelixToolkit.Wpf`, `CommunityToolkit.Mvvm`.
 
-- 大型 STEP（數千面）匯入需數十秒（CADability 解析成本），匯入期間 UI 有進度提示不凍結
-- 輪廓邊線超過 30,000 線段的檔案預設關閉邊線（WPF LinesVisual3D 轉動視角時效能限制），可在樹面板手動開啟
-- **IGES 不支援**（CADability 無 IGES reader）；STL 無 B-rep，僅支援 點/距離/角度/面距 量測；DXF 為線架構檢視
-- 剖切面無封口（cap），剖開處顯示內部背面材質（深灰）
-- 面積與面距為三角網格近似值；邊長/圓半徑/角度為 B-rep 精確值
-- 少數 AP242 檔案 CADability 支援不完整，匯入失敗會提示訊息（不閃退）
-- 唯讀檢視器，不寫入/修改原始檔案
+---
 
-詳細設計與開發 Phase 見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+## 📁 Project Structure
+
+```
+STPViewer/
+├── ARCHITECTURE.md            # Design, data flow, development phases
+├── CLAUDE.md                  # Project memory & engineering conventions
+├── STPViewer.sln
+├── src/STPViewer/
+│   ├── STPViewer.csproj       # net8.0-windows, UseWPF, single-source <Version>
+│   ├── MainWindow.xaml / .cs   # Layout + mouse-pick forwarding
+│   ├── Models/                 # FaceInfo, MeasureMode, MeasurementResult, UnitSystem
+│   ├── Services/               # StepImport, Measurement, Interference, Section, RigidAlign
+│   └── ViewModels/             # MainViewModel, ModelNodeViewModel (assembly tree)
+└── tools/SmokeTest/           # Headless import + geometry-math verification
+```
+
+---
+
+## ⚠️ Known Limitations
+
+- Large STEP files (thousands of faces) take tens of seconds to import (CADability parse cost); a progress indicator keeps the UI responsive.
+- Files with more than 30,000 outline segments disable edges by default (WPF `LinesVisual3D` cost while orbiting); re-enable per file in the tree.
+- **IGES is not supported** (CADability has no IGES reader). STL has no B-rep (point / distance / angle / face-distance only). DXF is wireframe view.
+- Section cuts have no cap fill — the opened face shows the interior back material (dark gray).
+- Area and face-distance are mesh approximations; edge length / circle radius / angle are exact B-rep values.
+- A few AP242 files are incompletely supported by CADability; failed imports show a message (no crash).
+- Read-only viewer — never writes to or modifies the source file.
+
+---
+
+## 🤝 Contributing
+
+1. Fork and create a feature branch: `git checkout -b feature/your-feature`
+2. Follow [Conventional Commits](https://www.conventionalcommits.org/): `feat(scope): summary`
+3. Push and open a Pull Request
+
+---
+
+## 📜 Version History
+
+### v0.3.2
+
+- **Perf:** large-assembly measurement no longer lags while orbiting. Measurement modes now render the merged mesh (one model per file) and resolve the picked face from the hit triangle's vertex index, instead of rendering tens of thousands of per-face models. Per-face rendering is kept only for section mode.
+- Camera-interaction suspension now also subscribes to `HelixViewport3D.CameraChanged` so it can't be orphaned if the camera instance is replaced.
+
+### v0.3.1
+
+- Gizmo always-on-top overlay (manipulator floats above parts, never occluded).
+
+### v0.3.0
+
+- Rotation alignment: axis rotate (↻X/↻Y/↻Z), 3-point align, and the unified `TransformRoot` rigid-transform path.
+
+### v0.2.x
+
+- Drag mode, 2-point align, interference check, section plane, angle / face-distance measurement, assembly tree, STL / DXF support, mm ⇄ inch.
+
+---
+
+## 🙏 Acknowledgments
+
+- [CADability](https://github.com/SOFAgh/CADability) — pure-C# CAD kernel: STEP import, B-rep geometry, face triangulation
+- [HelixToolkit.Wpf](https://github.com/helix-toolkit/helix-toolkit) — 3D viewport, camera control, hit testing
+- [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) — MVVM
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design and development phases.

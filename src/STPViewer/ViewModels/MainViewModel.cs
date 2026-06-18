@@ -30,6 +30,11 @@ public partial class MainViewModel : ObservableObject
     /// <summary>合併網格 → leaf 反查表（拖曳模式在瀏覽渲染下 hit-test 用）</summary>
     private readonly Dictionary<Model3D, ModelNodeViewModel> _mergedMap = new();
 
+    /// <summary>合併網格 → (每面頂點起始邊界, 對應 FaceInfo)。命中合併網格時用三角形頂點 index 二分搜尋反查回是哪個面，
+    /// 讓量測模式也能 render 合併網格（62 個 model）而非逐面（數萬個 model）。starts 長度 = faces+1，最後一格為總頂點數。
+    /// 邊界由匯入時依面序串接而成，與 BuildMergedMesh 串接順序一致；平移不改各面頂點數，故邊界永久有效。</summary>
+    private readonly Dictionary<Model3D, (int[] Starts, FaceInfo[] Faces)> _mergedFaceRanges = new();
+
     // 拖曳模式：暫時 Transform 跟著滑鼠，放開才一次性烘進 B-rep（TranslateRoot）
     private ModelNodeViewModel? _dragRoot;
     private Point3D _dragAnchor;              // 命中點（世界座標），拖曳平面的錨點
@@ -107,7 +112,13 @@ public partial class MainViewModel : ObservableObject
     public void Attach(HelixViewport3D viewport)
     {
         _viewport = viewport;
-        // 相機一動就暫停邊線（轉動/縮放/平移皆觸發），停下 180ms 再恢復
+        // 相機一動就暫停邊線/逐面（轉動/縮放/平移皆觸發），停下 180ms 再恢復。
+        // 兩個事件都訂閱，互補保底：
+        //   1) viewport.CameraChanged（控制項層級 routed event）— 相機實例若被 Helix 內部換掉也接得住；
+        //   2) Camera.Changed（Freezable，相機 Position/方向一被改就觸發）— 確保每次移動都收到。
+        // 舊寫法只訂 Camera.Changed 且包在 null 檢查裡，萬一相機實例被換就永久失聯 → 暫停機制全失效。
+        // 重複觸發 OnCameraMoved 無害（idempotent，內部有 _edgesSuspended guard）。
+        viewport.CameraChanged += (_, _) => OnCameraMoved();
         if (viewport.Camera is not null)
             viewport.Camera.Changed += (_, _) => OnCameraMoved();
     }
@@ -274,30 +285,42 @@ public partial class MainViewModel : ObservableObject
             backMat.Freeze();
             vm.SharedMaterial = diffuse;
 
-            // 一個 B-rep Face = 一個 GeometryModel3D，登錄反查表（量測拾取用）
+            // 一個 B-rep Face = 一個 GeometryModel3D，登錄反查表（剖面模式逐面拾取用）。
+            // 同時依面序記錄每面頂點起始邊界 + 對應 FaceInfo，供「命中合併網格反查面」（量測模式拾取用）。
             var group = new Model3DGroup();
-            foreach (ImportedFace f in n.Faces)
+            var faceInfos = new FaceInfo[n.Faces.Count];
+            var vertStarts = new int[n.Faces.Count + 1];
+            int vacc = 0;
+            for (int i = 0; i < n.Faces.Count; i++)
             {
+                ImportedFace f = n.Faces[i];
                 var gm = new GeometryModel3D(f.Mesh, matGroup) { BackMaterial = backMat };
                 group.Children.Add(gm);
-                _faceMap[gm] = new FaceInfo { BrepFace = f.BrepFace, Mesh = f.Mesh, Owner = vm };
+                var info = new FaceInfo { BrepFace = f.BrepFace, Mesh = f.Mesh, Owner = vm };
+                _faceMap[gm] = info;
+                faceInfos[i] = info;
+                vertStarts[i] = vacc;
+                vacc += f.Mesh.Positions.Count;
             }
+            vertStarts[n.Faces.Count] = vacc;
             vm.FacesContent = group;
 
-            // 合併網格：整零件所有面併成 1 個 GeometryModel3D（瀏覽時只 1 個 draw call）
+            // 合併網格：整零件所有面併成 1 個 GeometryModel3D（draw call 從每面 1 個降為每檔 1 個）。
+            // BuildMergedMesh 依 n.Faces 同序串接（baseIdx += positions.Count），與上面 vertStarts 對齊 → 命中頂點 index 可反查回面。
             var mergedModel = new GeometryModel3D(BuildMergedMesh(n.Faces), matGroup);
-            // 封閉實體背面不可見 → 不設 BackMaterial（WPF 兩面渲染成本砍半）；開放殼/STL 仍需背面
+            // 封閉實體背面不可見 → 不設 BackMaterial（WPF 兩面渲染成本砍半）；開放殼/STL 仍需背面。
+            // 拾取不受材質影響（WPF 3D hit-test 純幾何、不剔背面），故孔內壁仍可命中。
             if (n.SolidCount == 0 || !n.HasBrep)
                 mergedModel.BackMaterial = backMat;
             vm.MergedContent = new Model3DGroup();
             vm.MergedContent.Children.Add(mergedModel);
             _mergedMap[mergedModel] = vm;
+            _mergedFaceRanges[mergedModel] = (vertStarts, faceInfos);
 
-            // 預設瀏覽模式 → 顯示合併網格（量測模式時由 ApplyRenderMode 換回逐面）
+            // 非剖面一律顯示合併網格（瀏覽/量測都是，量測靠 _mergedFaceRanges 反查面）；只有剖面才逐面（裁切後幾何）
             vm.BodyVisual = new ModelVisual3D
             {
-                Content = (CurrentMode is MeasureMode.None or MeasureMode.Drag && !SectionEnabled)
-                    ? vm.MergedContent : group,
+                Content = SectionEnabled ? group : vm.MergedContent,
             };
         }
 
@@ -409,15 +432,17 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 依目前狀態切換每個 leaf 的渲染內容：
-    /// 瀏覽（None）且未剖面 → 合併網格（快）；量測模式或剖面 → 逐面（拾取/裁切需要）。
+    /// 非剖面（瀏覽 + 量測皆是）→ 合併網格（每檔 1 個 model，快）；量測拾取靠命中合併網格反查面（_mergedFaceRanges）。
+    /// 剖面 → 逐面（要顯示各面裁切後的幾何）。
     /// </summary>
     private void ApplyRenderMode()
     {
-        bool browse = CurrentMode is MeasureMode.None or MeasureMode.Drag && !SectionEnabled;
+        // 量測不再需要逐面渲染（拾取打合併網格反查面）→ 只有剖面才逐面。永不在量測模式掛數萬個 GeometryModel3D。
+        bool merged = !SectionEnabled;
         foreach (ModelNodeViewModel leaf in Roots.SelectMany(r => r.Leaves()))
         {
             if (leaf.BodyVisual is null) continue;
-            Model3DGroup? target = browse ? leaf.MergedContent : leaf.FacesContent;
+            Model3DGroup? target = merged ? leaf.MergedContent : leaf.FacesContent;
             if (target is not null && !ReferenceEquals(leaf.BodyVisual.Content, target))
                 leaf.BodyVisual.Content = target;
         }
@@ -454,7 +479,10 @@ public partial class MainViewModel : ObservableObject
                     _faceMap.Remove(m);
             if (leaf.MergedContent is not null)
                 foreach (Model3D m in leaf.MergedContent.Children)
+                {
                     _mergedMap.Remove(m);
+                    _mergedFaceRanges.Remove(m);
+                }
         }
         if (root.EdgeVisual is not null)
             _viewport.Children.Remove(root.EdgeVisual);
@@ -467,7 +495,7 @@ public partial class MainViewModel : ObservableObject
     partial void OnCurrentModeChanged(MeasureMode value)
     {
         CancelPending();
-        ApplyRenderMode(); // None → 合併網格(快)；量測模式 → 逐面(可拾取)
+        ApplyRenderMode(); // 非剖面一律合併網格（量測拾取靠反查面）；不再因切量測模式而掛逐面
         StatusText = value switch
         {
             MeasureMode.None => "瀏覽模式（右鍵旋轉、滾輪縮放、中鍵或 Shift+左鍵拖曳平移）",
@@ -503,12 +531,22 @@ public partial class MainViewModel : ObservableObject
         Vector3D hitNormal = default;
         foreach (var h in hits)
         {
-            if (h.Model is not null && _faceMap.TryGetValue(h.Model, out FaceInfo? f))
+            if (h.Model is null) continue;
+            // 剖面模式：渲染逐面 → 直接查 _faceMap
+            if (_faceMap.TryGetValue(h.Model, out FaceInfo? f))
             {
-                fi = f;
-                hitPoint = h.Position;
-                hitNormal = h.Normal;
+                fi = f; hitPoint = h.Position; hitNormal = h.Normal;
                 break;
+            }
+            // 量測/瀏覽模式：渲染合併網格 → 用命中三角形頂點 index 反查回是哪個面
+            if (h.RayHit is not null && _mergedFaceRanges.TryGetValue(h.Model, out var range))
+            {
+                FaceInfo? mf = ResolveMergedFace(range, h.RayHit.VertexIndex1);
+                if (mf is not null)
+                {
+                    fi = mf; hitPoint = h.Position; hitNormal = h.Normal;
+                    break;
+                }
             }
         }
         if (fi is null)
@@ -525,6 +563,23 @@ public partial class MainViewModel : ObservableObject
         {
             StatusText = $"量測失敗：{ex.Message}";
         }
+    }
+
+    /// <summary>命中合併網格的某頂點 index → 反查回是哪個面（依面序的頂點起始邊界二分搜尋）。</summary>
+    private static FaceInfo? ResolveMergedFace((int[] Starts, FaceInfo[] Faces) range, int vertexIndex)
+    {
+        int[] starts = range.Starts;
+        FaceInfo[] faces = range.Faces;
+        if (vertexIndex < 0 || faces.Length == 0 || vertexIndex >= starts[faces.Length]) return null;
+        // 找最大的 k 使 starts[k] <= vertexIndex（face k 佔頂點 [starts[k], starts[k+1])）
+        int lo = 0, hi = faces.Length - 1, ans = 0;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (starts[mid] <= vertexIndex) { ans = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        return faces[ans];
     }
 
     private void HandleMeasureClick(FaceInfo fi, Point3D hit, Vector3D hitNormal)

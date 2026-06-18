@@ -27,11 +27,16 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 ## 開發慣例
 
 - MVVM：邏輯寫 ViewModel/Service，code-behind 只做純 View 事件（滑鼠拾取轉發）
-- 一個 B-rep Face = 一個 `GeometryModel3D`，用 `Dictionary<Model3D, FaceInfo>` 反查（量測拾取靠這個，**不可移除逐面結構**）
-- 渲染雙模式（降 draw call）：每個 leaf 同時持有 `FacesContent`（逐面，量測用）與 `MergedContent`（整零件合併成 1 個 `GeometryModel3D`，瀏覽用）。
-  `ApplyRenderMode()` 依狀態切 `BodyVisual.Content`：**瀏覽(None)且未剖面 → 合併網格**；量測模式或剖面 → 逐面。
-  合併網格只代表「未剖切、目前位置」幾何；平移後呼叫 `RebuildMerged(leaf)` 同步。`_faceMap`/量測/剖面/干涉一律走 `FacesContent`，與目前顯示哪種內容無關
-- 合併網格的 `BackMaterial`：封閉實體（`SolidCount≥1` 且 `HasBrep`）**不設**（WPF 兩面渲染成本砍半）；開放殼/STL 才設。逐面 `FacesContent` 一律保留 BackMaterial（剖切要看內部）
+- 一個 B-rep Face = 一個 `GeometryModel3D`，用 `Dictionary<Model3D, FaceInfo>` (`_faceMap`) 反查（剖面模式逐面拾取靠這個，**不可移除逐面結構**）
+- 渲染雙模式（降 draw call）：每個 leaf 同時持有 `FacesContent`（逐面，剖面用）與 `MergedContent`（整零件合併成 1 個 `GeometryModel3D`）。
+  `ApplyRenderMode()` 依狀態切 `BodyVisual.Content`：**非剖面（瀏覽＋量測皆是）→ 合併網格**；**剖面 → 逐面**（要顯示各面裁切後幾何）。
+  合併網格只代表「未剖切、目前位置」幾何；平移後呼叫 `RebuildMerged(leaf)` 同步。剖面/干涉/`RebuildMerged` 一律走 `FacesContent`，與目前顯示哪種內容無關
+- ⚡ **量測拾取打合併網格、用三角形頂點 index 反查面**（`_mergedFaceRanges`：合併 Model → (每面頂點起始邊界, FaceInfo[])）。
+  `BuildMergedMesh` 依面序串接（`baseIdx += positions.Count`，無焊接共用頂點），故命中 `RayHit.VertexIndex1` 可二分搜尋（`ResolveMergedFace`）回是哪個面。
+  **這是 v0.3.2 修大檔量測卡頓的關鍵**：量測模式不再掛數萬個逐面 `GeometryModel3D`（64k 面實測 = 64k draw call，轉動/停下重繪爆量）→ 改成每檔 1 個 model，量測模式 orbit 與瀏覽同樣順。
+  邊界由面頂點數決定、平移不改 → 永久有效，`RebuildMerged` 不需重算。**不要因為「量測要逐面」而把渲染改回逐面**
+- 合併網格的 `BackMaterial`：封閉實體（`SolidCount≥1` 且 `HasBrep`）**不設**（WPF 兩面渲染成本砍半）；開放殼/STL 才設。
+  **拾取不受材質影響**（WPF 3D hit-test 純幾何、不剔背面），故打合併網格仍命中孔內壁等背向面。逐面 `FacesContent` 一律保留 BackMaterial（剖切要看內部）
 - 量測值以 B-rep 為準（圓半徑、邊長、角度），面積/面距用網格近似
 - 量測文字一律 `Func<UnitSystem,string>` 延後產生（mm⇄inch 即時切換）；內部數值永遠存 mm
 - 裝配樹節點（`ModelNodeViewModel`）的可見性/邊線/顏色向下 cascade
@@ -72,8 +77,9 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 - 邊線採「**一檔一條合併 `LinesVisual3D`**」（掛在 root `EdgeVisual`，由 `RefreshRootEdges` 收集各 leaf `OriginalEdgePoints` 重建）。
   **不要改回逐 leaf 一條** — 裝配樹零件多時，N 條線每幀重建會嚴重卡頓（實測主因）。leaf 只保留邊線「資料」，渲染統一在 root；
   可見性/ShowEdges/剖面/平移變更時呼叫 `RefreshRootEdges(root)` 重組合併線
-- 互動中暫停邊線：`Attach` 掛 `Camera.Changed` → `OnCameraMoved` 隱藏邊線、`_interactionTimer`(180ms) 停下後 `ResumeEdges` 顯示；
-  `_edgesSuspended` 為真時 `RefreshRootEdges` 不把線掛回。轉動/縮放/平移時不付邊線重建成本
+- 互動中暫停邊線：`Attach` 掛 **`HelixViewport3D.CameraChanged`（控制項層級 routed event）＋ `Camera.Changed`（保底）** → `OnCameraMoved` 隱藏邊線、`_interactionTimer`(180ms) 停下後 `ResumeEdges` 顯示；
+  `_edgesSuspended` 為真時 `RefreshRootEdges` 不把線掛回。轉動/縮放/平移時不付邊線重建成本。
+  **只訂 `Camera.Changed` 不夠**：`Attach` 在建構式呼叫，相機實例若被 Helix 換掉訂閱會孤兒化 → 暫停永不觸發；故加訂控制項層級事件保底（重複觸發 `OnCameraMoved` 無害，有 guard）
 - CADability `ImportStep` 對少數 AP242 檔案支援不完整；匯入失敗要 catch 顯示訊息，不可閃退
 - IGES 無 reader；STL 無 B-rep（FaceInfo.BrepFace == null 的分支要保留）
 - 不寫入原始檔（唯讀工具）；WPF 限 Windows，不要嘗試移植 vbox/Linux
