@@ -94,7 +94,7 @@ STPViewer/
 └── src/
     └── STPViewer/
         ├── STPViewer.csproj           # net8.0-windows, UseWPF
-        ├── App.xaml / App.xaml.cs
+        ├── App.xaml / App.xaml.cs     # 全域例外處理（log + 訊息框存活；%LOCALAPPDATA%\STPViewer\error.log）
         ├── MainWindow.xaml / .cs      # 版面 + 滑鼠拾取事件
         │
         ├── Models/
@@ -110,9 +110,14 @@ STPViewer/
         │   ├── RigidAlign.cs          # 三點對齊/旋轉的剛體變換數學（Matrix3D列向量 ↔ ModOp行向量 轉換）
         │   └── SectionService.cs      # 剖面：網格/線段半空間裁切
         │
-        └── ViewModels/
-            ├── MainViewModel.cs       # 樹集合、量測集合、剖面、單位、匯出
-            └── ModelNodeViewModel.cs  # 裝配樹節點（可見性/顏色 cascade）
+        └── ViewModels/                        # MainViewModel 為 partial class，依職責分檔
+            ├── MainViewModel.cs               # 核心：匯入、裝配樹、量測、剛體變換、邊線、單位
+            ├── MainViewModel.Drag.cs          # 拖曳模式
+            ├── MainViewModel.Gizmo.cs         # 三軸操作器 + 疊圖層相機
+            ├── MainViewModel.Section.cs       # 剖面（v0.4.0 起背景平行裁切）
+            ├── MainViewModel.Interference.cs  # 干涉檢查指令
+            ├── MainViewModel.Export.cs        # CSV / 截圖匯出
+            └── ModelNodeViewModel.cs          # 裝配樹節點（可見性/顏色 cascade）
 ```
 
 ---
@@ -357,9 +362,70 @@ WPF retained-mode 每幀重走 visual tree → frame rate 崩。瀏覽模式因�
 
 ---
 
+## Development Phases — 第五輪（效能 + 穩定性 v0.4.0，全部完成）
+
+### Phase 13 — 效能 + 穩定性（工作量：M）
+
+**效能：**
+- [x] 剖面裁切背景化 + 平行化 — `ApplySection` 改 async：UI 執行緒快照 (model, frozen mesh)、
+      `Task.Run` + `Parallel.For` 全場景裁切、回 UI 一次換上。`_sectionApplying`/`_sectionReapply` guard：
+      裁切期間的新變更（拉滑桿/換軸/零件平移）→ 完成後用最新參數重跑一輪，最終狀態必為最新。
+      大檔（64k 面）拉剖面滑桿不再凍結 UI
+- [x] `TransformRoot` 網格變換面級平行化 — 來源/輸出 mesh 皆 frozen、各面獨立所以安全；
+      B-rep `Modify` 與視覺樹賦值維持循序（CADability 非執行緒安全 / WPF 執行緒親和）。
+      大組件拖曳/操作器放開的烘焙時間大減
+- [x] 干涉間隙精修加速 — `ApproxMinDistance` 精修改為 AABB 平方距離下界快速拒絕 + `Parallel.For`
+      分段掃描（thread-local best，lock 只在合併時），大檔全三角形掃描成本大減
+- [x] 合併網格邏輯去重複 — `BuildMergedMesh`/`RebuildMerged` 共用 `MergeMeshes`（面序不變，
+      `_mergedFaceRanges` 頂點邊界維持有效）；`MeasurementService.ClosestPointOnTriangle`
+      改用 `InterferenceService` 的同一實作
+
+**穩定性：**
+- [x] 全域例外處理（App.xaml.cs）— `DispatcherUnhandledException`（記 log + 訊息框 + Handled 讓程式存活）、
+      `TaskScheduler.UnobservedTaskException`（SetObserved）、`AppDomain.UnhandledException`（致命前留記錄）；
+      log 位於 `%LOCALAPPDATA%\STPViewer\error.log`
+- [x] `IsBusy` 指令防護 — 匯入 / 旋轉 90° / 干涉檢查在背景運算期間停用（`CanExecute`），
+      避免干涉檢查中零件被轉走造成結果錯位；`ImportFilesAsync` 整批維持 busy、
+      重入（拖放/命令列）直接擋掉（StepImportService 有共享狀態、非重入安全）
+- [x] `MainViewModel`（原 1,476 行）拆 partial class — Drag / Gizmo / Section / Interference / Export 各自成檔
+
+**驗收：** ClipTest 5 項、AlignTest 8 項、InterferenceTest 3 情境全過；test.stp 匯入 smoke test 通過；建置 0 警告
+
+---
+
 ## Future Extensions（下一輪）
 
-- 剖切面封口（cap）填實（目前剖開處可見內部背面材質）
+依價值/成本排序（v0.4.0 盤點）：
+
+### 低成本高價值（建議下一輪優先）
+
+- **圓心吸附** — 距離模式點到圓邊時吸附到圓心 → 直接量兩孔 pitch（心到心距離），
+  連接器 pin pitch 確認的殺手級量測；實作只需在 `MeasurementService.Snap` 加掃該面的圓形 Edge
+- **Esc 取消** — 兩段式量測（距離/角度/三點對齊）按 Esc 清除 pending、再按退回瀏覽模式；
+  順手加量測模式快速鍵（P 點 / D 距離 / E 邊 / F 面 / C 圓…）
+- **GridSplitter** — 樹面板 / 量測面板寬度可調（現為固定 280 / 300 px，深層裝配樹名稱會被截斷）
+- **標準視圖 + 正交投影** — 前/上/右/等角視圖按鈕 + `OrthographicCamera` 切換（Helix 原生支援）；
+  工程師確認尺寸時正交投影是剛需，透視會騙眼睛
+- **節點外形尺寸** — 樹節點顯示該零件/組件 L×W×H（`Bounds` 已有，加進 Stats/tooltip 或做成一種量測）
+- **隔離顯示（Isolate）** — 樹節點右鍵「只顯示此節點」/「反轉顯示」，大組件找零件比逐個勾 checkbox 快
+- **記住設定 + 最近檔案** — 視窗大小、mm/inch、邊線開關存 user settings；匯入按鈕加 MRU 下拉
+
+### 中等成本
+
+- **體積/質心** — 封閉實體用網格 signed volume（各三角形對原點的四面體有向體積加總）近似，
+  對 match 驗證與料號確認有用
+- **樹搜尋/過濾** — 裝配樹上百零件時依名稱過濾
+- **干涉支援 >2 個可見檔** — 跳選擇配對對話框或兩兩檢查（現硬性要求剛好 2 個）
+- **對齊結果匯出 STEP** — 把目前場景（對齊後位置）輸出成新 STEP 檔，把配合結果交接出去；
+  需先驗證 CADability 有無 STEP writer；寫「新檔」不違反唯讀原則
+- **任意剖面** — 三點定義剖切平面 + 位置數值輸入框（`ClipMesh` 本就吃任意 plane point/normal，純 UI 工作）
+- **大檔重開快取** — 匯入成功後把三角網格 + 裝配樹序列化成 sidecar 快取檔（以來源檔 hash 驗證），
+  重開同檔免等 CADability 解析（39MB 實測 276 秒）。取捨：B-rep 無法快取 → 量測退化成網格模式
+  或背景補載；是否值得取決於「重複開同一大檔」的頻率
+
+### 既有清單（維持）
+
+- 剖切面封口（cap）填實（目前剖開處可見內部背面材質；需對裁切輪廓三角化補面，難度最高，建議最後做）
 - 樹節點三態 checkbox（部分子節點隱藏時顯示中間態）
 - IGES 支援（需引入其他幾何核心或自寫 reader）
 - 量測結果匯出含截圖的 PDF 報告

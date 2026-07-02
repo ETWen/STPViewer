@@ -27,6 +27,10 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 ## 開發慣例
 
 - MVVM：邏輯寫 ViewModel/Service，code-behind 只做純 View 事件（滑鼠拾取轉發）
+- `MainViewModel` 是 **partial class 分檔**（v0.4.0）：主檔（匯入/樹/量測/變換/邊線）+
+  `.Drag` / `.Gizmo` / `.Section` / `.Interference` / `.Export`。加新功能先看職責放哪個檔，勿全塞回主檔
+- 全域例外處理在 `App.xaml.cs`：UI 執行緒未攔截例外 → 記 log（`%LOCALAPPDATA%\STPViewer\error.log`）+
+  訊息框 + `Handled=true` 存活；背景 Task 例外記 log。個別功能仍應自行 try/catch 給出有意義的狀態列訊息
 - 一個 B-rep Face = 一個 `GeometryModel3D`，用 `Dictionary<Model3D, FaceInfo>` (`_faceMap`) 反查（剖面模式逐面拾取靠這個，**不可移除逐面結構**）
 - 渲染雙模式（降 draw call）：每個 leaf 同時持有 `FacesContent`（逐面，剖面用）與 `MergedContent`（整零件合併成 1 個 `GeometryModel3D`）。
   `ApplyRenderMode()` 依狀態切 `BodyVisual.Content`：**非剖面（瀏覽＋量測皆是）→ 合併網格**；**剖面 → 逐面**（要顯示各面裁切後幾何）。
@@ -41,10 +45,19 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 - 量測文字一律 `Func<UnitSystem,string>` 延後產生（mm⇄inch 即時切換）；內部數值永遠存 mm
 - 裝配樹節點（`ModelNodeViewModel`）的可見性/邊線/顏色向下 cascade
 - 剖面只換 `GeometryModel3D.Geometry`（`FaceInfo.Mesh` 保留原始 frozen mesh 供還原與量測）
+- ⚡ 剖面裁切是**背景平行**（v0.4.0）：`ApplySection` 在 UI 快照 (model, frozen mesh) → `Task.Run`+`Parallel.For`
+  裁切 → 回 UI 一次換上；`_sectionApplying`/`_sectionReapply` guard 保證裁切中的新變更（滑桿/換軸/`TransformRoot`）
+  完成後用最新參數重跑。**不要改回同步呼叫 ClipMesh**（64k 面整場景裁切會凍結 UI 數秒）；
+  await 之後一定要檢查 `SectionEnabled`（期間可能被關掉，還原分支已處理）
 - 剛體變換（兩點對齊/旋轉 90°/三點對齊）統一走 `TransformRoot(root, ModOp, Matrix3D)`：B-rep 用 ModOp 對 Solid/Shell 整體 `Modify`
   （勿逐面位移，會重複位移共用邊），網格/合併網格/邊線/邊界同步重算；變換後量測已失效要 `ClearMeasurements()`。
   **op 與 m 必須是同一個變換** — 數學在 `Services/RigidAlign.cs`：WPF `Matrix3D` 是「列向量」約定、CADability `ModOp` 是「行向量」約定，
-  `ToModOp` 負責轉置轉換，改動務必跑 `SmokeTest --align-test` 驗證兩種表示一致，否則 B-rep 與顯示網格會悄悄分家
+  `ToModOp` 負責轉置轉換，改動務必跑 `SmokeTest --align-test` 驗證兩種表示一致，否則 B-rep 與顯示網格會悄悄分家。
+  `TransformRoot` 的網格變換是**面級平行**（v0.4.0；來源/輸出 mesh 皆 frozen 所以安全）；
+  B-rep `Modify` 與視覺樹賦值必須維持循序（CADability 非執行緒安全 / WPF 執行緒親和）
+- IsBusy 期間匯入/旋轉 90°/干涉檢查指令停用（`CanExecute = nameof(IsIdle)` + isBusy 的
+  `NotifyCanExecuteChangedFor`）；`ImportFilesAsync` 整批維持 busy 且開頭擋重入
+  （拖放/命令列會繞過 CanExecute）。新增「會改動幾何的指令」時記得比照辦理
 - 拖曳模式（`MeasureMode.Drag`）：拖曳中只掛**暫時 `TranslateTransform3D`**（GPU 免費），放開才一次性 `TranslateRoot` 烘進 B-rep —
   **不要改成拖曳中逐幀 TransformRoot**（大檔每幀重建網格會卡死）。2D→3D 用 Helix `UnProject`（過錨點、法向=相機 LookDirection 的平面）。
   合併網格的 hit-test 走 `_mergedMap`（合併 Model → leaf）；拖曳中邊線用 `_edgesSuspended` 暫停
