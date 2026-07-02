@@ -237,21 +237,43 @@ public static class InterferenceService
                 if (d < best) { best = d; pa = trisA[i].A; pb = trisB[j].A; }
             }
 
-        // 2) 以最佳點為中心，精修：點 → 對方所有三角形
-        Point3D RefineAgainst(Point3D p, Triangle[] tris, ref double bestD, Point3D current)
-        {
-            Point3D bestPt = current;
-            foreach (Triangle t in tris)
+        // 2) 以最佳點為中心，精修：點 → 對方所有三角形（AABB 平方距離快速拒絕 + 平行分段，
+        //    初值來自步驟 1 已相當接近 → 絕大多數三角形被 AABB 直接刷掉）
+        (pb, best) = ClosestOnTriangles(pa, trisB, pb, best);
+        (pa, best) = ClosestOnTriangles(pb, trisA, pa, best);
+        return (pa, pb, best);
+    }
+
+    /// <summary>點 p 到三角形集的最近點（帶初值；回傳更新後的最近點與距離）</summary>
+    private static (Point3D pt, double d) ClosestOnTriangles(Point3D p, Triangle[] tris, Point3D seedPt, double seedD)
+    {
+        object gate = new();
+        Point3D bestPt = seedPt;
+        double bestD = seedD;
+
+        System.Threading.Tasks.Parallel.For(0, tris.Length,
+            () => (D: seedD, Pt: seedPt, Found: false),
+            (i, _, local) =>
             {
+                Triangle t = tris[i];
+                // AABB 平方距離下界 ≥ 目前最佳 → 不可能更近，略過（絕大多數三角形在此被刷掉）
+                double dx = Math.Max(0, Math.Max(t.Min.X - p.X, p.X - t.Max.X));
+                double dy = Math.Max(0, Math.Max(t.Min.Y - p.Y, p.Y - t.Max.Y));
+                double dz = Math.Max(0, Math.Max(t.Min.Z - p.Z, p.Z - t.Max.Z));
+                if (dx * dx + dy * dy + dz * dz >= local.D * local.D) return local;
+
                 Point3D q = ClosestPointOnTriangle(p, t.A, t.B, t.C);
                 double d = (q - p).Length;
-                if (d < bestD) { bestD = d; bestPt = q; }
-            }
-            return bestPt;
-        }
-        pb = RefineAgainst(pa, trisB, ref best, pb);
-        pa = RefineAgainst(pb, trisA, ref best, pa);
-        return (pa, pb, best);
+                return d < local.D ? (d, q, true) : local;
+            },
+            local =>
+            {
+                if (!local.Found) return;
+                lock (gate)
+                    if (local.D < bestD) { bestD = local.D; bestPt = local.Pt; }
+            });
+
+        return (bestPt, bestD);
     }
 
     /// <summary>點到三角形最近點（Ericson, Real-Time Collision Detection）</summary>
