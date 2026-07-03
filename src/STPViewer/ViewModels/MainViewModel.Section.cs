@@ -38,10 +38,115 @@ public partial class MainViewModel
     [ObservableProperty]
     private bool sectionFlip;
 
-    partial void OnSectionEnabledChanged(bool value) => ScheduleSection();
-    partial void OnSectionAxisIndexChanged(int value) => ScheduleSection();
-    partial void OnSectionPositionChanged(double value) => ScheduleSection();
+    // ── 3點自訂剖切平面（SectionAxisIndex == 3，v0.5.0）──
+    private const int CustomAxisIndex = 3;
+    private Vector3D? _customNormal;                                  // null = 尚未定義（等使用者點 3 點）
+    private readonly List<Point3D> _sectionPicks = new();
+    private readonly List<Visual3D> _sectionPickOverlays = new();
+
+    partial void OnSectionEnabledChanged(bool value)
+    {
+        if (!value) CancelSectionPickIfActive(quiet: true);
+        ScheduleSection();
+    }
+
+    partial void OnSectionAxisIndexChanged(int value)
+    {
+        if (value == CustomAxisIndex)
+        {
+            if (_customNormal is null)
+                StatusText = "3點剖面：請在模型上點 3 個點定義剖切平面（Esc 取消）";
+        }
+        else
+        {
+            // 離開自訂平面 → 丟棄舊平面（再選「3點」即重新定義）
+            _customNormal = null;
+            ClearSectionPicks();
+        }
+        ScheduleSection();
+    }
+
+    partial void OnSectionPositionChanged(double value)
+    {
+        if (value < 0) { SectionPosition = 0; return; }   // 位置數值輸入框防呆
+        if (value > 100) { SectionPosition = 100; return; }
+        ScheduleSection();
+    }
+
     partial void OnSectionFlipChanged(bool value) => ScheduleSection();
+
+    /// <summary>3點剖面定義模式中的點擊（OnViewportClick 轉入）。回傳 true = 已消費此點擊。</summary>
+    public bool HandleSectionPlanePick(System.Windows.Point position)
+    {
+        if (!SectionEnabled || SectionAxisIndex != CustomAxisIndex || _customNormal is not null) return false;
+        if (_viewport is null) return true;
+
+        Point3D? hit = null;
+        foreach (var h in _viewport.Viewport.FindHits(position))
+        {
+            if (h.Model is null) continue;
+            if (_faceMap.ContainsKey(h.Model) || _mergedFaceRanges.ContainsKey(h.Model))
+            {
+                hit = h.Position;
+                break;
+            }
+        }
+        if (hit is null)
+        {
+            StatusText = $"3點剖面：未命中模型表面（已選 {_sectionPicks.Count}/3 點，Esc 取消）";
+            return true;
+        }
+        if (_sectionPicks.Count == 2 &&
+            Vector3D.CrossProduct(_sectionPicks[1] - _sectionPicks[0], hit.Value - _sectionPicks[0]).LengthSquared < 1e-12)
+        {
+            StatusText = "3點剖面：三點共線，請改選不共線的第 3 點";
+            return true;
+        }
+
+        _sectionPicks.Add(hit.Value);
+        double markerR = Math.Clamp(SceneDiagonal() * 0.004, 0.01, 5.0);
+        var marker = new SphereVisual3D { Center = hit.Value, Radius = markerR, Fill = System.Windows.Media.Brushes.DodgerBlue };
+        _sectionPickOverlays.Add(marker);
+        _viewport.Children.Add(marker);
+
+        if (_sectionPicks.Count < 3)
+        {
+            StatusText = $"3點剖面：已選 {_sectionPicks.Count}/3 點";
+            return true;
+        }
+
+        Vector3D n = Vector3D.CrossProduct(_sectionPicks[1] - _sectionPicks[0], _sectionPicks[2] - _sectionPicks[0]);
+        ClearSectionPicks();
+        if (n.LengthSquared < 1e-12)
+        {
+            StatusText = "3點剖面：三點退化（共線），請重新點選";
+            return true;
+        }
+        n.Normalize();
+        _customNormal = n;
+        StatusText = $"3點剖面：平面已定義（法向 {n.X:F2}, {n.Y:F2}, {n.Z:F2}）— 用位置滑桿掃剖面";
+        ApplySection();
+        return true;
+    }
+
+    /// <summary>取消 3 點平面定義（Esc / 關剖面）。回傳 true = 有取消動作。</summary>
+    private bool CancelSectionPickIfActive(bool quiet = false)
+    {
+        bool picking = SectionEnabled && SectionAxisIndex == CustomAxisIndex && _customNormal is null;
+        if (_sectionPicks.Count == 0 && !picking) return false;
+        ClearSectionPicks();
+        if (SectionAxisIndex == CustomAxisIndex && _customNormal is null)
+            SectionAxisIndex = 0; // 回 X 軸
+        if (!quiet) StatusText = "已取消 3 點剖面定義";
+        return true;
+    }
+
+    private void ClearSectionPicks()
+    {
+        foreach (Visual3D v in _sectionPickOverlays) _viewport?.Children.Remove(v);
+        _sectionPickOverlays.Clear();
+        _sectionPicks.Clear();
+    }
 
     private void ScheduleSection()
     {
@@ -82,28 +187,40 @@ public partial class MainViewModel
                 Rect3D bounds = UnionBounds();
                 if (bounds.IsEmpty) return;
 
-                Vector3D axis = SectionAxisIndex switch
+                Vector3D axis;
+                if (SectionAxisIndex == CustomAxisIndex)
                 {
-                    0 => new Vector3D(1, 0, 0),
-                    1 => new Vector3D(0, 1, 0),
-                    _ => new Vector3D(0, 0, 1),
-                };
+                    if (_customNormal is null) return; // 平面尚未定義（等使用者點 3 點）
+                    axis = _customNormal.Value;
+                }
+                else
+                {
+                    axis = SectionAxisIndex switch
+                    {
+                        0 => new Vector3D(1, 0, 0),
+                        1 => new Vector3D(0, 1, 0),
+                        _ => new Vector3D(0, 0, 1),
+                    };
+                }
                 double t = SectionPosition / 100.0;
                 Point3D min = bounds.Location;
                 var size = new Vector3D(bounds.SizeX, bounds.SizeY, bounds.SizeZ);
-                double planeCoord = SectionAxisIndex switch
-                {
-                    0 => min.X + size.X * t,
-                    1 => min.Y + size.Y * t,
-                    _ => min.Z + size.Z * t,
-                };
                 Point3D center = min + size / 2;
-                Point3D planePoint = SectionAxisIndex switch
+                // 平面位置：場景 AABB 8 個角投影到法向的 [dmin, dmax]，滑桿 t 內插
+                //（軸向法向 = 與舊版逐軸計算等價；任意法向也成立）
+                double dmin = double.MaxValue, dmax = double.MinValue;
+                for (int ci = 0; ci < 8; ci++)
                 {
-                    0 => new Point3D(planeCoord, center.Y, center.Z),
-                    1 => new Point3D(center.X, planeCoord, center.Z),
-                    _ => new Point3D(center.X, center.Y, planeCoord),
-                };
+                    var corner = new Point3D(
+                        (ci & 1) == 0 ? min.X : min.X + size.X,
+                        (ci & 2) == 0 ? min.Y : min.Y + size.Y,
+                        (ci & 4) == 0 ? min.Z : min.Z + size.Z);
+                    double d = Vector3D.DotProduct((Vector3D)corner, axis);
+                    if (d < dmin) dmin = d;
+                    if (d > dmax) dmax = d;
+                }
+                double dStar = dmin + (dmax - dmin) * t;
+                Point3D planePoint = center + axis * (dStar - Vector3D.DotProduct((Vector3D)center, axis));
                 Vector3D normal = SectionFlip ? -axis : axis;
 
                 // UI 執行緒快照（原始 mesh 皆已 Freeze，可跨執行緒），背景平行裁切，回 UI 一次換上。
@@ -137,7 +254,8 @@ public partial class MainViewModel
 
                 ApplyRenderMode(); // 剖面開啟 → 改用逐面（裁切後幾何）
                 UpdateSectionPlaneVisual(planePoint, axis, size);
-                StatusText = $"剖面：{"XYZ"[SectionAxisIndex]} 軸 {SectionPosition:F0}%" + (SectionFlip ? "（反向）" : "");
+                string axisName = SectionAxisIndex == CustomAxisIndex ? "自訂平面" : $"{"XYZ"[SectionAxisIndex]} 軸";
+                StatusText = $"剖面：{axisName} {SectionPosition:F0}%" + (SectionFlip ? "（反向）" : "");
             } while (_sectionReapply);
         }
         finally
@@ -155,8 +273,10 @@ public partial class MainViewModel
         {
             0 => (new Vector3D(0, 1, 0), size.Y, size.Z),
             1 => (new Vector3D(1, 0, 0), size.X, size.Z),
-            _ => (new Vector3D(1, 0, 0), size.X, size.Y),
+            2 => (new Vector3D(1, 0, 0), size.X, size.Y),
+            _ => (AnyPerpendicular(axis), size.Length * 0.8, size.Length * 0.8), // 自訂平面
         };
+        lenDir.Normalize();
         _sectionPlaneVisual = new RectangleVisual3D
         {
             Origin = planePoint,
@@ -167,5 +287,15 @@ public partial class MainViewModel
             Fill = new SolidColorBrush(Color.FromArgb(40, 30, 120, 255)),
         };
         _viewport!.Children.Add(_sectionPlaneVisual);
+    }
+
+    /// <summary>取任一與 n 垂直的單位向量（自訂平面的指示矩形方向用）</summary>
+    private static Vector3D AnyPerpendicular(Vector3D n)
+    {
+        Vector3D v = Math.Abs(n.Z) < 0.9
+            ? Vector3D.CrossProduct(n, new Vector3D(0, 0, 1))
+            : Vector3D.CrossProduct(n, new Vector3D(1, 0, 0));
+        v.Normalize();
+        return v;
     }
 }

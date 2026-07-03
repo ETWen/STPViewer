@@ -20,9 +20,9 @@ public partial class MainViewModel
     {
         if (_viewport is null) return;
         var visibleRoots = Roots.Where(r => r.IsVisible).ToList();
-        if (visibleRoots.Count != 2)
+        if (visibleRoots.Count < 2)
         {
-            StatusText = $"干涉檢查需要剛好 2 個可見檔案（目前 {visibleRoots.Count} 個）— 用樹面板勾選";
+            StatusText = $"干涉檢查需要至少 2 個可見檔案（目前 {visibleRoots.Count} 個）— 用樹面板勾選";
             return;
         }
 
@@ -33,16 +33,27 @@ public partial class MainViewModel
                 .Select(m => _faceMap[(GeometryModel3D)m].Mesh)
                 .ToList();
 
-        var a = MeshesOf(visibleRoots[0]);
-        var b = MeshesOf(visibleRoots[1]);
-        string nameA = visibleRoots[0].Name, nameB = visibleRoots[1].Name;
+        // 網格快照（開跑後零件被改走也不會半途換料；v0.4.0 起運算期間指令已鎖，這裡是雙保險）
+        var meshes = visibleRoots.ToDictionary(r => r, MeshesOf);
 
         IsBusy = true;
-        StatusText = $"干涉檢查中：{nameA} ⟷ {nameB} …";
         try
         {
-            InterferenceResult result = await Task.Run(() => InterferenceService.Check(a, b));
-            AddInterferenceResult(result, nameA, nameB);
+            int pairs = 0, intersecting = 0;
+            for (int i = 0; i < visibleRoots.Count; i++)
+                for (int j = i + 1; j < visibleRoots.Count; j++)
+                {
+                    pairs++;
+                    string nameA = visibleRoots[i].Name, nameB = visibleRoots[j].Name;
+                    StatusText = $"干涉檢查中（第 {pairs} 組）：{nameA} ⟷ {nameB} …";
+                    var a = meshes[visibleRoots[i]];
+                    var b = meshes[visibleRoots[j]];
+                    InterferenceResult result = await Task.Run(() => InterferenceService.Check(a, b));
+                    AddInterferenceResult(result, nameA, nameB);
+                    if (result.Intersects) intersecting++;
+                }
+            if (pairs > 1)
+                StatusText = $"干涉檢查完成：{pairs} 組配對、{intersecting} 組相交";
         }
         catch (Exception ex)
         {

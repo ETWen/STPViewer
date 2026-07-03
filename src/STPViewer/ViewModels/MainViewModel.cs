@@ -61,15 +61,54 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ImportCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportRecentCommand))]
     [NotifyCanExecuteChangedFor(nameof(RotateRootCommand))]
     [NotifyCanExecuteChangedFor(nameof(CheckInterferenceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportStepFileCommand))]
     private bool isBusy;
 
     [ObservableProperty]
     private bool useInch;
 
+    /// <summary>樹面板名稱過濾字串（只影響樹顯示，不影響 3D 可見性）</summary>
+    [ObservableProperty]
+    private string? treeFilter;
+
+    partial void OnTreeFilterChanged(string? value)
+    {
+        foreach (ModelNodeViewModel root in Roots) root.ApplyFilter(value);
+    }
+
+    /// <summary>最近開啟檔案（MRU，最多 10 筆；隨 settings.json 保存）</summary>
+    public ObservableCollection<string> RecentFiles { get; } = new();
+
     public ObservableCollection<ModelNodeViewModel> Roots { get; } = new();
     public ObservableCollection<MeasurementResult> Measurements { get; } = new();
+
+    // ─── 使用者設定（視窗由 MainWindow 處理；VM 管單位 + MRU）─────
+
+    public void LoadSettings(AppSettings s)
+    {
+        UseInch = s.UseInch;
+        RecentFiles.Clear();
+        foreach (string f in s.RecentFiles.Where(File.Exists).Take(SettingsService.MaxRecentFiles))
+            RecentFiles.Add(f);
+    }
+
+    public void SaveSettingsInto(AppSettings s)
+    {
+        s.UseInch = UseInch;
+        s.RecentFiles = RecentFiles.ToList();
+    }
+
+    private void TouchRecent(string path)
+    {
+        string full = Path.GetFullPath(path);
+        RecentFiles.Remove(full);
+        RecentFiles.Insert(0, full);
+        while (RecentFiles.Count > SettingsService.MaxRecentFiles)
+            RecentFiles.RemoveAt(RecentFiles.Count - 1);
+    }
 
     public MainViewModel()
     {
@@ -140,6 +179,10 @@ public partial class MainViewModel : ObservableObject
             await ImportFilesAsync(dlg.FileNames);
     }
 
+    /// <summary>MRU 下拉點選（檔案可能已被移走 → ImportFilesAsync 會報匯入失敗）</summary>
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private Task ImportRecentAsync(string path) => ImportFilesAsync(new[] { path });
+
     public async Task ImportFilesAsync(IEnumerable<string> paths)
     {
         if (_viewport is null) return;
@@ -162,6 +205,7 @@ public partial class MainViewModel : ObservableObject
                 {
                     ImportedFileData data = await Task.Run(() => _importService.Import(path));
                     BuildRoot(data);
+                    TouchRecent(path);
                     ok++;
                 }
                 catch (Exception ex)
@@ -200,6 +244,7 @@ public partial class MainViewModel : ObservableObject
             root.ShowEdges = false;
 
         Roots.Add(root);
+        if (!string.IsNullOrWhiteSpace(TreeFilter)) root.ApplyFilter(TreeFilter); // 新檔套用目前過濾
         foreach (ModelNodeViewModel leaf in root.Leaves())
         {
             leaf.VisualStateChanged += _ => SyncLeafVisuals(root);
@@ -410,6 +455,44 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ZoomAll() => _viewport?.ZoomExtents(400);
 
+    /// <summary>標準視圖（機構慣例 Z 向上）：Iso / Front / Back / Top / Bottom / Left / Right</summary>
+    [RelayCommand]
+    private void SetStandardView(string name)
+    {
+        if (_viewport?.Camera is not ProjectionCamera cam) return;
+        (Vector3D dir, Vector3D up) = name switch
+        {
+            "Front"  => (new Vector3D(0, 1, 0),  new Vector3D(0, 0, 1)),  // 從 -Y 往 +Y 看
+            "Back"   => (new Vector3D(0, -1, 0), new Vector3D(0, 0, 1)),
+            "Top"    => (new Vector3D(0, 0, -1), new Vector3D(0, 1, 0)),
+            "Bottom" => (new Vector3D(0, 0, 1),  new Vector3D(0, -1, 0)),
+            "Right"  => (new Vector3D(-1, 0, 0), new Vector3D(0, 0, 1)),
+            "Left"   => (new Vector3D(1, 0, 0),  new Vector3D(0, 0, 1)),
+            _        => (new Vector3D(-1, -1, -1), new Vector3D(0, 0, 1)), // Iso
+        };
+        dir.Normalize();
+        Rect3D b = UnionBounds();
+        Point3D center = b.IsEmpty ? new Point3D()
+            : new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
+        double dist = Math.Max(SceneDiagonal() * 1.8, 10);
+        cam.Position = center - dir * dist;
+        cam.LookDirection = dir * dist; // 目標點 = Position + LookDirection = 場景中心
+        cam.UpDirection = up;
+        _viewport.ZoomExtents(400);
+        StatusText = $"視圖：{name}";
+    }
+
+    /// <summary>正交投影切換（平行投影，量尺寸不受透視變形；Helix 保持視角換相機型別）</summary>
+    [ObservableProperty]
+    private bool orthographicView;
+
+    partial void OnOrthographicViewChanged(bool value)
+    {
+        if (_viewport is null) return;
+        _viewport.Orthographic = value;
+        StatusText = value ? "正交投影（平行投影，適合尺寸確認）" : "透視投影";
+    }
+
     [RelayCommand]
     private void RemoveRoot(ModelNodeViewModel root)
     {
@@ -438,6 +521,92 @@ public partial class MainViewModel : ObservableObject
             _viewport.Children.Remove(root.EdgeVisual);
         Roots.Remove(root);
         StatusText = $"已移除：{root.Name}";
+    }
+
+    // ─── 顯示控制 / 體積（樹右鍵選單）────────────────────────────
+
+    /// <summary>只顯示此節點（其餘全部隱藏；「全部顯示」復原）</summary>
+    [RelayCommand]
+    private void IsolateNode(ModelNodeViewModel node)
+    {
+        foreach (ModelNodeViewModel r in Roots) SetVisibleRecursive(r, false);
+        SetVisibleRecursive(node, true);
+        StatusText = $"只顯示「{node.Name}」（樹右鍵 → 全部顯示 復原）";
+    }
+
+    [RelayCommand]
+    private void InvertVisibility()
+    {
+        foreach (ModelNodeViewModel l in Roots.SelectMany(r => r.Leaves()))
+            l.IsVisible = !l.IsVisible;
+        StatusText = "已反轉顯示";
+    }
+
+    [RelayCommand]
+    private void ShowAll()
+    {
+        foreach (ModelNodeViewModel r in Roots) SetVisibleRecursive(r, true);
+        StatusText = "已全部顯示";
+    }
+
+    /// <summary>逐節點顯式遞迴設定可見性。不能只設 root（setter 同值不觸發 cascade，
+    /// 之前的隔離操作可能留下「父關子開」的混合狀態）</summary>
+    private static void SetVisibleRecursive(ModelNodeViewModel node, bool visible)
+    {
+        node.IsVisible = visible;
+        foreach (ModelNodeViewModel c in node.Children) SetVisibleRecursive(c, visible);
+    }
+
+    /// <summary>體積/質心（網格 signed volume，封閉實體才可靠）→ 加進量測結果 + 質心標記</summary>
+    [RelayCommand]
+    private void MeasureVolume(ModelNodeViewModel node)
+    {
+        var meshes = node.Leaves()
+            .Where(l => l.FacesContent is not null)
+            .SelectMany(l => l.FacesContent!.Children)
+            .OfType<GeometryModel3D>()
+            .Where(g => _faceMap.ContainsKey(g))
+            .Select(g => _faceMap[g].Mesh)
+            .ToList();
+        if (meshes.Count == 0)
+        {
+            StatusText = $"「{node.Name}」沒有可計算的面網格（線架構無體積）";
+            return;
+        }
+
+        (double vol, Point3D centroid, bool reliable) = MeasurementService.MeshVolume(meshes);
+        if (!reliable)
+        {
+            StatusText = $"「{node.Name}」非封閉網格（開放殼），無法可靠計算體積";
+            return;
+        }
+
+        double diag = SceneDiagonal();
+        double markerR = Math.Clamp(diag * 0.004, 0.01, 5.0);
+        string label = NextLabel(MeasureMode.Volume, "V");
+        string name = node.Name;
+        Rect3D b = node.Bounds;
+        var m = new MeasurementResult
+        {
+            Kind = MeasureMode.Volume,
+            TitleFor = u => $"{label}  {name}  V ≈ {Units.V(vol, u)}",
+            DetailFor = u => $"體積 ≈ {Units.V(vol, u)}（網格近似）\n質心 {Units.P(centroid, u)}\n" +
+                             $"外形（AABB）{Units.C(b.SizeX, u)} × {Units.C(b.SizeY, u)} × {Units.C(b.SizeZ, u)} " +
+                             (u == UnitSystem.Millimeter ? "mm" : "in"),
+        };
+        m.Overlays.Add(new SphereVisual3D { Center = centroid, Radius = markerR, Fill = Brushes.OrangeRed });
+        var volLabel = new BillboardTextVisual3D
+        {
+            Position = centroid + new Vector3D(0, 0, markerR * 2),
+            Text = $"{label} {Units.V(vol, UnitSystem.Millimeter)}",
+            Foreground = Brushes.Black,
+            Background = new SolidColorBrush(Color.FromArgb(200, 255, 255, 210)),
+            Padding = new Thickness(4, 2, 4, 2),
+            FontSize = 14,
+        };
+        m.Overlays.Add(volLabel);
+        m.DynamicLabels.Add((volLabel, u => $"{label} {Units.V(vol, u)}"));
+        AddMeasurement(m);
     }
 
     // ─── 量測 ────────────────────────────────────────────────────
@@ -470,10 +639,52 @@ public partial class MainViewModel : ObservableObject
         StatusText = value ? "顯示單位：inch" : "顯示單位：mm";
     }
 
+    /// <summary>Esc（MainWindow 轉發）：先取消進行中的多段量測（保留模式），再按退回瀏覽模式；再退操作器</summary>
+    public void OnEscape()
+    {
+        if (CancelSectionPickIfActive()) return; // 3點剖面定義中 → 先取消定義
+        bool hadPending = _pendingPoint is not null || _pendingDirection is not null ||
+                          _pendingFace is not null || _pendingAlign is not null || _align3.Count > 0;
+        if (hadPending)
+        {
+            CancelPending();
+            StatusText = "已取消目前量測起點（再按 Esc 退出量測模式）";
+        }
+        else if (CurrentMode != MeasureMode.None)
+        {
+            CurrentMode = MeasureMode.None;
+        }
+        else if (GizmoEnabled)
+        {
+            GizmoEnabled = false;
+        }
+    }
+
+    /// <summary>量測模式快速鍵（MainWindow 轉發；無修飾鍵）。同鍵再按 = 退回瀏覽。回傳 false 表示非快速鍵。</summary>
+    public bool OnHotKey(System.Windows.Input.Key key)
+    {
+        MeasureMode? m = key switch
+        {
+            System.Windows.Input.Key.P => MeasureMode.Point,
+            System.Windows.Input.Key.D => MeasureMode.Distance,
+            System.Windows.Input.Key.E => MeasureMode.Edge,
+            System.Windows.Input.Key.F => MeasureMode.Face,
+            System.Windows.Input.Key.C => MeasureMode.Circle,
+            System.Windows.Input.Key.A => MeasureMode.Angle,
+            System.Windows.Input.Key.M => MeasureMode.FaceDistance,
+            _ => null,
+        };
+        if (m is null) return false;
+        CurrentMode = CurrentMode == m ? MeasureMode.None : m.Value;
+        return true;
+    }
+
     /// <summary>MainWindow 滑鼠左鍵點擊轉發進來</summary>
     public void OnViewportClick(Point position)
     {
-        if (_viewport is null || IsBusy || CurrentMode is MeasureMode.None or MeasureMode.Drag) return;
+        if (_viewport is null || IsBusy) return;
+        if (HandleSectionPlanePick(position)) return; // 3點剖面定義模式優先吃點擊（v0.5.0）
+        if (CurrentMode is MeasureMode.None or MeasureMode.Drag) return;
 
         var hits = _viewport.Viewport.FindHits(position);
         FaceInfo? fi = null;

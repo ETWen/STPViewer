@@ -31,7 +31,12 @@ public class MeasurementService
 
     // ─── 拾取輔助 ────────────────────────────────────────────────
 
-    /// <summary>命中點吸附到最近的 B-rep 頂點（容差內），否則回傳原始表面點</summary>
+    /// <summary>
+    /// 命中點吸附：點到圓形邊附近（容差內）→ 吸附**圓心**（量兩孔 pitch 的關鍵，v0.5.0）；
+    /// 否則吸附最近的 B-rep 頂點（容差內）；都沒有 → 回傳原始表面點。
+    /// 圓心與頂點都在容差內時，比「命中點到圓形邊」與「命中點到頂點」誰近（圓弧端點常與圓重疊，
+    /// 點在圓邊上時圓心優先勝出才符合直覺）。
+    /// </summary>
     public Point3D Snap(FaceInfo fi, Point3D hit, double tolerance)
     {
         if (fi.BrepFace is null) return hit;
@@ -47,6 +52,22 @@ public class MeasurementService
             }
         }
         catch { /* 頂點存取失敗則不吸附 */ }
+
+        // 圓形邊：以「命中點到邊曲線」的距離參與比較，勝出時吸附到圓心
+        try
+        {
+            foreach (Edge e in fi.BrepFace.AllEdges)
+            {
+                if (e.Curve3D is not Ellipse { IsCircle: true } el) continue;
+                double pos;
+                try { pos = el.PositionOf(ToGeo(hit)); } catch { continue; }
+                if (double.IsNaN(pos)) continue;
+                Point3D onCurve = ToP3(el.PointAt(Math.Clamp(pos, 0, 1)));
+                double d = (onCurve - hit).Length;
+                if (d < bestD) { bestD = d; best = ToP3(el.Center); }
+            }
+        }
+        catch { /* 邊存取失敗則維持頂點吸附結果 */ }
         return best;
     }
 
@@ -404,6 +425,47 @@ public class MeasurementService
         Probe(ma, mb, swap: false);
         Probe(mb, ma, swap: true);
         return (pa, pb);
+    }
+
+    // ─── 體積 / 質心（封閉網格 signed volume）────────────────────
+
+    /// <summary>
+    /// 網格體積與質心：各三角形與原點構成的四面體有向體積加總（divergence theorem）。
+    /// 只對「封閉」網格有意義（開放殼會得到不可靠的值 → IsClosedReliable=false 供呼叫端提示）。
+    /// 多個 mesh（多實體）直接加總。
+    /// </summary>
+    public static (double VolumeMm3, Point3D Centroid, bool Reliable) MeshVolume(
+        System.Collections.Generic.IEnumerable<MeshGeometry3D> meshes)
+    {
+        double vol6 = 0;                       // Σ 6×有向體積
+        double absVol6 = 0;                    // Σ |6×有向體積|（封閉性 sanity check 用）
+        double cx = 0, cy = 0, cz = 0;         // Σ 四面體質心 × 6×有向體積
+        foreach (MeshGeometry3D mesh in meshes)
+        {
+            Point3DCollection pos = mesh.Positions;
+            Int32Collection idx = mesh.TriangleIndices;
+            for (int i = 0; i + 2 < idx.Count; i += 3)
+            {
+                Point3D a = pos[idx[i]], b = pos[idx[i + 1]], c = pos[idx[i + 2]];
+                // 6V = a · (b × c)
+                double v = a.X * (b.Y * c.Z - b.Z * c.Y)
+                         + a.Y * (b.Z * c.X - b.X * c.Z)
+                         + a.Z * (b.X * c.Y - b.Y * c.X);
+                vol6 += v;
+                absVol6 += Math.Abs(v);
+                // 四面體（a,b,c,原點）質心 = (a+b+c)/4
+                cx += (a.X + b.X + c.X) / 4 * v;
+                cy += (a.Y + b.Y + c.Y) / 4 * v;
+                cz += (a.Z + b.Z + c.Z) / 4 * v;
+            }
+        }
+        double volume = Math.Abs(vol6) / 6;
+        // 有向體積相對正負抵銷比例過高 → 可能是開放殼/法向不一致，數值不可靠
+        bool reliable = absVol6 > 0 && Math.Abs(vol6) / absVol6 > 0.01 && volume > 1e-9;
+        Point3D centroid = Math.Abs(vol6) > 1e-12
+            ? new Point3D(cx / vol6, cy / vol6, cz / vol6)
+            : default;
+        return (volume, centroid, reliable);
     }
 
     // 點到三角形最近點：共用 InterferenceService.ClosestPointOnTriangle（v0.4.0 去重複）

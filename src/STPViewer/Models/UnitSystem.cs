@@ -21,6 +21,10 @@ public static class Units
     public static string A(double mm2, UnitSystem u) =>
         u == UnitSystem.Millimeter ? $"{mm2:N3} mm²" : $"{mm2 / (MmPerInch * MmPerInch):N4} in²";
 
+    /// <summary>體積</summary>
+    public static string V(double mm3, UnitSystem u) =>
+        u == UnitSystem.Millimeter ? $"{mm3:N2} mm³" : $"{mm3 / (MmPerInch * MmPerInch * MmPerInch):N4} in³";
+
     /// <summary>座標分量（無單位字尾）</summary>
     public static string C(double mm, UnitSystem u) =>
         u == UnitSystem.Millimeter ? $"{mm:F3}" : $"{mm / MmPerInch:F4}";

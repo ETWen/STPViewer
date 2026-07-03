@@ -35,6 +35,9 @@ if (args[0] == "--align-test")
 if (args[0] == "--bbox")
     return SmokeTest.BBoxDump.Run(args[1]);
 
+if (args[0] == "--export-test")
+    return SmokeTest.ExportTest.Run(args[1], args[2]) == 0 ? 0 : 2;
+
 var service = new StepImportService { Progress = s => Console.WriteLine($"  [階段] {s}") };
 int failed = 0;
 

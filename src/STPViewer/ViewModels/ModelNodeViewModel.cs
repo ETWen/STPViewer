@@ -57,8 +57,24 @@ public partial class ModelNodeViewModel : ObservableObject
     public int FaceCount { get; init; }
     public int TriangleCount { get; init; }
 
-    /// <summary>世界座標邊界（零件平移後同步位移）</summary>
-    public Rect3D Bounds { get; set; }
+    /// <summary>世界座標邊界（零件平移/旋轉後由 RecomputeBounds 更新；連動 Stats/Tooltip 的外形尺寸）</summary>
+    public Rect3D Bounds
+    {
+        get => _bounds;
+        set
+        {
+            if (_bounds == value) return;
+            _bounds = value;
+            OnPropertyChanged(nameof(Stats));
+            OnPropertyChanged(nameof(ToolTipText));
+        }
+    }
+    private Rect3D _bounds = Rect3D.Empty;
+
+    /// <summary>外形尺寸 L×W×H（AABB，mm）</summary>
+    public string SizeText => Bounds.IsEmpty
+        ? ""
+        : $"{Bounds.SizeX:F1} × {Bounds.SizeY:F1} × {Bounds.SizeZ:F1} mm";
 
     /// <summary>來源 B-rep 物件（零件平移時整體 Modify，避免共用邊被重複位移）</summary>
     public List<CADability.GeoObject.IGeoObject> SourceGeos { get; } = new();
@@ -67,9 +83,31 @@ public partial class ModelNodeViewModel : ObservableObject
     public bool HasBrep { get; init; } = true;
 
     public string Stats =>
-        $"{SolidCount} 實體 · {FaceCount} 面 · {TriangleCount:N0} △" + (HasBrep ? "" : " · 無B-rep");
+        $"{SolidCount} 實體 · {FaceCount} 面 · {TriangleCount:N0} △" + (HasBrep ? "" : " · 無B-rep") +
+        (Bounds.IsEmpty ? "" : $"\n外形 {SizeText}");
 
     public string ToolTipText => (FilePath is not null ? FilePath + "\n" : "") + Stats;
+
+    // ── 樹搜尋/過濾（只影響樹面板顯示，不影響 3D 可見性）──
+
+    [ObservableProperty]
+    private bool isFilterVisible = true;
+
+    /// <summary>
+    /// 套用名稱過濾：符合者 + 其祖先 + 其子樹 顯示。空字串 = 全顯。
+    /// 過濾中有符合的子孫時自動展開。回傳此節點是否顯示。
+    /// </summary>
+    public bool ApplyFilter(string? filter, bool ancestorMatched = false)
+    {
+        bool empty = string.IsNullOrWhiteSpace(filter);
+        bool selfMatch = !empty && Name.Contains(filter!, StringComparison.OrdinalIgnoreCase);
+        bool anyChild = false;
+        foreach (ModelNodeViewModel c in Children)
+            anyChild |= c.ApplyFilter(filter, ancestorMatched || selfMatch);
+        IsFilterVisible = empty || selfMatch || ancestorMatched || anyChild;
+        if (!empty && anyChild) IsExpanded = true;
+        return IsFilterVisible;
+    }
 
     // ── 視覺物件 ──
     public ModelVisual3D? BodyVisual { get; set; }          // leaf：面網格容器（內容在兩種模式間切換）

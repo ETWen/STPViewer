@@ -7,7 +7,8 @@
         Title="STPViewer — STP/STEP 3D 檢視器"
         Height="820" Width="1320"
         WindowStartupLocation="CenterScreen"
-        AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
+        AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
         <conv:EnumToBoolConverter x:Key="ModeConv" />
@@ -25,23 +26,37 @@
             <ToolBar>
                 <Button Command="{Binding ImportCommand}" Padding="8,4" FontSize="13"
                         ToolTip="匯入 STP/STEP/STL/DXF（可複選，也可直接拖放到視窗）">📂 匯入</Button>
+                <Button Click="Recent_Click" Padding="4,4" FontSize="13"
+                        ToolTip="最近開啟的檔案">▾</Button>
                 <Button Command="{Binding ZoomAllCommand}" Padding="8,4" FontSize="13"
                         ToolTip="縮放至全部模型">🔍 全覽</Button>
                 <Separator />
+                <TextBlock Text="視圖：" VerticalAlignment="Center" Margin="4,0,2,0" />
+                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Iso" Padding="6,4" FontSize="13"
+                        ToolTip="等角視圖">等角</Button>
+                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Front" Padding="6,4" FontSize="13"
+                        ToolTip="前視圖（-Y 方向看，Z 向上）">前</Button>
+                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Top" Padding="6,4" FontSize="13"
+                        ToolTip="上視圖（+Z 往下看）">上</Button>
+                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Right" Padding="6,4" FontSize="13"
+                        ToolTip="右視圖（+X 方向看，Z 向上）">右</Button>
+                <ToggleButton IsChecked="{Binding OrthographicView}" Padding="6,4" FontSize="13" Margin="2,0"
+                              ToolTip="正交投影（平行投影，量尺寸不受透視變形；再按切回透視）">正交</ToggleButton>
+                <Separator />
                 <TextBlock Text="量測：" VerticalAlignment="Center" Margin="4,0,2,0" />
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="量測點座標（吸附頂點）"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="量測點座標（吸附頂點/圓心）— 快速鍵 P"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Point}">📍 點</ToggleButton>
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="兩點距離 + ΔXYZ"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="兩點距離 + ΔXYZ（點到圓邊會吸圓心 → 可量孔對孔 pitch）— 快速鍵 D"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Distance}">📏 距離</ToggleButton>
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="邊長（直線/曲線/圓弧）"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="邊長（直線/曲線/圓弧）— 快速鍵 E"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Edge}">📐 邊</ToggleButton>
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="面積 + 曲面類型/法向量"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="面積 + 曲面類型/法向量 — 快速鍵 F"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Face}">⬛ 面</ToggleButton>
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="圓心/半徑/直徑/周長"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="圓心/半徑/直徑/周長 — 快速鍵 C"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Circle}">⭕ 圓</ToggleButton>
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="兩面/兩邊夾角（點兩個面或靠近直線邊）"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="兩面/兩邊夾角（點兩個面或靠近直線邊）— 快速鍵 A"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Angle}">∠ 角度</ToggleButton>
-                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="面到面最短距離（網格近似）"
+                <ToggleButton Style="{StaticResource ModeButton}" ToolTip="面到面最短距離（網格近似）— 快速鍵 M"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=FaceDistance}">⇔ 面距</ToggleButton>
                 <Separator />
                 <ToggleButton Style="{StaticResource ModeButton}"
@@ -65,10 +80,10 @@
                 <ToggleButton IsChecked="{Binding GizmoEnabled}" Padding="8,4" FontSize="13"
                               ToolTip="三軸操作器：對樹面板選取的檔案顯示 XYZ 箭頭（沿軸移動）與旋轉環（繞軸轉任意角度），每次放開即定位">⊹ 操作器</ToggleButton>
                 <Button Command="{Binding CheckInterferenceCommand}" Padding="8,4" FontSize="13"
-                        ToolTip="干涉檢查：檢查 2 個可見檔案是否相交（match 判定）；無相交時回報最小間隙">🧩 干涉</Button>
+                        ToolTip="干涉檢查：2 個以上可見檔案兩兩檢查是否相交（match 判定）；無相交時回報最小間隙">🧩 干涉</Button>
                 <Separator />
                 <Button Command="{Binding ClearMeasurementsCommand}" Padding="8,4" FontSize="13"
-                        ToolTip="清除全部量測與標記">🧹 清除</Button>
+                        ToolTip="清除全部量測與標記（Esc = 取消進行中量測/退出模式）">🧹 清除</Button>
                 <Separator />
                 <ToggleButton IsChecked="{Binding UseInch}" Padding="8,4" FontSize="13"
                               ToolTip="切換顯示單位 mm ⇄ inch（既有量測即時換算）">mm ⇄ in</ToggleButton>
@@ -77,22 +92,27 @@
                         ToolTip="量測結果匯出 CSV">💾 CSV</Button>
                 <Button Command="{Binding SaveScreenshotCommand}" Padding="8,4" FontSize="13"
                         ToolTip="3D 視圖截圖存 PNG（2x 解析度）">📷 截圖</Button>
+                <Button Command="{Binding ExportStepFileCommand}" Padding="8,4" FontSize="13"
+                        ToolTip="把可見檔案（目前對齊位置）匯出成新 STEP 檔 — 對齊插合結果可交接 CAD；不動原始檔">📤 STEP</Button>
             </ToolBar>
             <ToolBar>
                 <ToggleButton IsChecked="{Binding SectionEnabled}" Padding="8,4" FontSize="13"
                               ToolTip="開啟/關閉剖面檢視">✂ 剖面</ToggleButton>
-                <ComboBox SelectedIndex="{Binding SectionAxisIndex}" Width="52" Margin="4,0"
-                          VerticalAlignment="Center" ToolTip="剖切軸向"
+                <ComboBox SelectedIndex="{Binding SectionAxisIndex}" Width="60" Margin="4,0"
+                          VerticalAlignment="Center" ToolTip="剖切軸向（3點 = 在模型上點 3 點定義任意平面）"
                           IsEnabled="{Binding SectionEnabled}">
                     <ComboBoxItem>X</ComboBoxItem>
                     <ComboBoxItem>Y</ComboBoxItem>
                     <ComboBoxItem>Z</ComboBoxItem>
+                    <ComboBoxItem>3點</ComboBoxItem>
                 </ComboBox>
                 <Slider Value="{Binding SectionPosition}" Minimum="0" Maximum="100" Width="180"
-                        VerticalAlignment="Center" Margin="4,0" ToolTip="剖面位置（沿軸 %）"
+                        VerticalAlignment="Center" Margin="4,0" ToolTip="剖面位置（沿法向 %）"
                         IsEnabled="{Binding SectionEnabled}" />
-                <TextBlock Text="{Binding SectionPosition, StringFormat={}{0:F0}%}" Width="36"
-                           VerticalAlignment="Center" />
+                <TextBox Text="{Binding SectionPosition, StringFormat={}{0:F0}}" Width="34"
+                         VerticalAlignment="Center" ToolTip="剖面位置 %（0–100，可直接輸入，離開欄位生效）"
+                         IsEnabled="{Binding SectionEnabled}" />
+                <TextBlock Text="%" VerticalAlignment="Center" Margin="1,0,0,0" />
                 <CheckBox IsChecked="{Binding SectionFlip}" Content="反向" VerticalAlignment="Center"
                           Margin="4,0" ToolTip="切換保留側" IsEnabled="{Binding SectionEnabled}" />
             </ToolBar>
@@ -111,75 +131,105 @@
 
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="280" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="280" MinWidth="160" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="300" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="300" MinWidth="160" />
             </Grid.ColumnDefinitions>
 
             <!-- ─── 裝配樹面板 ─── -->
             <GroupBox Grid.Column="0" Header="模型 / 裝配樹" Margin="4">
-                <TreeView ItemsSource="{Binding Roots}"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          VirtualizingPanel.IsVirtualizing="True"
-                          SelectedItemChanged="Tree_SelectedItemChanged">
-                    <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem">
-                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                        </Style>
-                    </TreeView.ItemContainerStyle>
-                    <TreeView.ItemTemplate>
-                        <HierarchicalDataTemplate DataType="{x:Type vm:ModelNodeViewModel}"
-                                                  ItemsSource="{Binding Children}">
-                            <StackPanel Orientation="Horizontal" Margin="0,1"
-                                        ToolTip="{Binding ToolTipText}">
-                                <CheckBox IsChecked="{Binding IsVisible}" VerticalAlignment="Center"
-                                          ToolTip="顯示 / 隱藏（含子節點）" />
-                                <Button Width="14" Height="14" Margin="3,0"
-                                        VerticalAlignment="Center" ToolTip="點擊換色（含子節點）"
-                                        Command="{Binding CycleColorCommand}">
-                                    <Button.Template>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="2">
-                                                <Border.Background>
-                                                    <SolidColorBrush Color="{Binding Color}" />
-                                                </Border.Background>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Button.Template>
-                                </Button>
-                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
-                                           MaxWidth="130" TextTrimming="CharacterEllipsis">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsRoot}" Value="True">
-                                                    <Setter Property="FontWeight" Value="SemiBold" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                                <CheckBox IsChecked="{Binding ShowEdges}" Content="邊" FontSize="10"
-                                          VerticalAlignment="Center" Margin="4,0,0,0"
-                                          Visibility="{Binding IsRoot, Converter={StaticResource BoolToVis}}"
-                                          ToolTip="顯示輪廓邊線（邊線量大時轉動視角會變慢）" />
-                                <Button Content="🔍" Width="20" Margin="3,0,0,0" Padding="0"
-                                        VerticalAlignment="Center" ToolTip="縮放至此節點"
-                                        Command="{Binding DataContext.ZoomNodeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding}" />
-                                <Button Content="✕" Width="20" Padding="0" Margin="2,0,0,0"
-                                        VerticalAlignment="Center" ToolTip="移除此檔案"
-                                        Visibility="{Binding IsRoot, Converter={StaticResource BoolToVis}}"
-                                        Command="{Binding DataContext.RemoveRootCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding}" />
-                            </StackPanel>
-                        </HierarchicalDataTemplate>
-                    </TreeView.ItemTemplate>
-                </TreeView>
+                <DockPanel>
+                    <TextBox DockPanel.Dock="Top" Margin="0,2,0,4"
+                             Text="{Binding TreeFilter, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="輸入名稱過濾裝配樹（只影響樹面板顯示，不影響 3D 可見性；清空 = 全顯）" />
+                    <TreeView ItemsSource="{Binding Roots}"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              SelectedItemChanged="Tree_SelectedItemChanged">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                <Setter Property="Visibility"
+                                        Value="{Binding IsFilterVisible, Converter={StaticResource BoolToVis}}" />
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate DataType="{x:Type vm:ModelNodeViewModel}"
+                                                      ItemsSource="{Binding Children}">
+                                <StackPanel Orientation="Horizontal" Margin="0,1"
+                                            Background="Transparent"
+                                            ToolTip="{Binding ToolTipText}"
+                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="👁 只顯示此節點"
+                                                      Command="{Binding PlacementTarget.Tag.IsolateNodeCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="🔄 反轉顯示"
+                                                      Command="{Binding PlacementTarget.Tag.InvertVisibilityCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <MenuItem Header="☀ 全部顯示"
+                                                      Command="{Binding PlacementTarget.Tag.ShowAllCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <Separator />
+                                            <MenuItem Header="⚖ 量體積 / 質心"
+                                                      Command="{Binding PlacementTarget.Tag.MeasureVolumeCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
+                                    <CheckBox IsChecked="{Binding IsVisible}" VerticalAlignment="Center"
+                                              ToolTip="顯示 / 隱藏（含子節點）" />
+                                    <Button Width="14" Height="14" Margin="3,0"
+                                            VerticalAlignment="Center" ToolTip="點擊換色（含子節點）"
+                                            Command="{Binding CycleColorCommand}">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="2">
+                                                    <Border.Background>
+                                                        <SolidColorBrush Color="{Binding Color}" />
+                                                    </Border.Background>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                               MaxWidth="130" TextTrimming="CharacterEllipsis">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <CheckBox IsChecked="{Binding ShowEdges}" Content="邊" FontSize="10"
+                                              VerticalAlignment="Center" Margin="4,0,0,0"
+                                              Visibility="{Binding IsRoot, Converter={StaticResource BoolToVis}}"
+                                              ToolTip="顯示輪廓邊線（邊線量大時轉動視角會變慢）" />
+                                    <Button Content="🔍" Width="20" Margin="3,0,0,0" Padding="0"
+                                            VerticalAlignment="Center" ToolTip="縮放至此節點"
+                                            Command="{Binding DataContext.ZoomNodeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Content="✕" Width="20" Padding="0" Margin="2,0,0,0"
+                                            VerticalAlignment="Center" ToolTip="移除此檔案"
+                                            Visibility="{Binding IsRoot, Converter={StaticResource BoolToVis}}"
+                                            Command="{Binding DataContext.RemoveRootCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </DockPanel>
             </GroupBox>
 
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch" Background="#FFD8D8D8"
+                          ToolTip="拖曳調整面板寬度" />
+
             <!-- ─── 3D 視圖 ─── -->
-            <h:HelixViewport3D x:Name="viewport" Grid.Column="1"
+            <h:HelixViewport3D x:Name="viewport" Grid.Column="2"
                                ShowViewCube="True" ShowCoordinateSystem="True"
                                ShowFrameRate="False" ZoomExtentsWhenLoaded="True"
                                PanGesture="MiddleClick" PanGesture2="Shift+LeftClick"
@@ -208,11 +258,15 @@
 
             <!-- 操作器疊圖層：透明 Viewport3D 疊在主視窗上、永遠最上層。
                  只在操作器開啟時 IsHitTestVisible（否則空白處滑鼠才會穿透回主視窗） -->
-            <Viewport3D x:Name="gizmoOverlay" Grid.Column="1"
+            <Viewport3D x:Name="gizmoOverlay" Grid.Column="2"
                         IsHitTestVisible="{Binding GizmoEnabled}" />
 
+            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch" Background="#FFD8D8D8"
+                          ToolTip="拖曳調整面板寬度" />
+
             <!-- ─── 量測結果面板 ─── -->
-            <GroupBox Grid.Column="2" Header="量測結果" Margin="4">
+            <GroupBox Grid.Column="4" Header="量測結果" Margin="4">
                 <ListBox ItemsSource="{Binding Measurements}" HorizontalContentAlignment="Stretch"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>

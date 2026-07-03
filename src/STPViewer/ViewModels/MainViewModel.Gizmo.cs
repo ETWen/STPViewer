@@ -23,7 +23,7 @@ public partial class MainViewModel
     // 操作器疊圖層：另一個透明 Viewport3D 疊在主視窗上、相機同步、只放操作器 →
     // 操作器不在主場景，永不被實體遮擋（always-on-top）；空白處滑鼠穿透回主視窗
     private System.Windows.Controls.Viewport3D? _overlayViewport;
-    private PerspectiveCamera? _overlayCamera;
+    private ProjectionCamera? _overlayCamera; // 型別跟隨主相機（透視/正交切換，v0.5.0）
 
     /// <summary>注入操作器疊圖層（透明 Viewport3D，疊在主視窗上、永遠最上層）</summary>
     public void AttachOverlay(System.Windows.Controls.Viewport3D overlay)
@@ -37,16 +37,41 @@ public partial class MainViewModel
         SyncOverlayCamera();
     }
 
-    /// <summary>疊圖層相機跟隨主相機（每次主相機變更時呼叫，讓操作器疊在正確螢幕位置）</summary>
+    /// <summary>
+    /// 疊圖層相機跟隨主相機（每次主相機變更時呼叫，讓操作器疊在正確螢幕位置）。
+    /// 主相機可能在透視/正交間切換（Orthographic 屬性）→ 疊圖層相機「型別」也要跟著換，投影才一致。
+    /// </summary>
     private void SyncOverlayCamera()
     {
-        if (_overlayCamera is null || _viewport?.Camera is not ProjectionCamera src) return;
+        if (_overlayViewport is null || _viewport?.Camera is not ProjectionCamera src) return;
+
+        if (src is PerspectiveCamera p)
+        {
+            if (_overlayCamera is not PerspectiveCamera op)
+            {
+                op = new PerspectiveCamera();
+                _overlayCamera = op;
+                _overlayViewport.Camera = op;
+            }
+            op.FieldOfView = p.FieldOfView;
+        }
+        else if (src is OrthographicCamera o)
+        {
+            if (_overlayCamera is not OrthographicCamera oo)
+            {
+                oo = new OrthographicCamera();
+                _overlayCamera = oo;
+                _overlayViewport.Camera = oo;
+            }
+            oo.Width = o.Width;
+        }
+        if (_overlayCamera is null) return;
+
         _overlayCamera.Position = src.Position;
         _overlayCamera.LookDirection = src.LookDirection;
         _overlayCamera.UpDirection = src.UpDirection;
         _overlayCamera.NearPlaneDistance = src.NearPlaneDistance;
         _overlayCamera.FarPlaneDistance = src.FarPlaneDistance;
-        if (src is PerspectiveCamera p) _overlayCamera.FieldOfView = p.FieldOfView;
     }
 
     partial void OnGizmoEnabledChanged(bool value) => UpdateGizmo();

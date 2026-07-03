@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using STPViewer.Services;
 using STPViewer.ViewModels;
@@ -10,6 +13,7 @@ namespace STPViewer;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm = new();
+    private readonly AppSettings _settings;
 
     public MainWindow()
     {
@@ -21,10 +25,52 @@ public partial class MainWindow : Window
         _vm.Attach(viewport);
         _vm.AttachOverlay(gizmoOverlay);
         Loaded += MainWindow_Loaded;
+        Closing += MainWindow_Closing;
+
+        // 使用者設定：視窗位置大小（View 職責）+ 單位/MRU（VM 職責）
+        _settings = SettingsService.Load();
+        ApplyWindowSettings();
+        _vm.LoadSettings(_settings);
 
         // Gizmo 操作器放在疊圖層；manipulator 會把 MouseUp 標 handled，需 handledEventsToo 才收得到
         gizmoOverlay.AddHandler(MouseLeftButtonUpEvent,
             new MouseButtonEventHandler((_, _) => _vm.OnGizmoMouseUp()), handledEventsToo: true);
+    }
+
+    private void ApplyWindowSettings()
+    {
+        if (_settings.WindowWidth >= 400 && _settings.WindowHeight >= 300)
+        {
+            Width = _settings.WindowWidth;
+            Height = _settings.WindowHeight;
+        }
+        // 位置要落在目前虛擬桌面內才還原（避免拔掉外接螢幕後視窗開在螢幕外）
+        if (!double.IsNaN(_settings.WindowLeft) && !double.IsNaN(_settings.WindowTop) &&
+            _settings.WindowLeft >= SystemParameters.VirtualScreenLeft - 50 &&
+            _settings.WindowTop >= SystemParameters.VirtualScreenTop - 50 &&
+            _settings.WindowLeft <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 200 &&
+            _settings.WindowTop <= SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 200)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = _settings.WindowLeft;
+            Top = _settings.WindowTop;
+        }
+        if (_settings.WindowMaximized)
+            WindowState = WindowState.Maximized;
+    }
+
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        Rect r = WindowState == WindowState.Normal
+            ? new Rect(Left, Top, Width, Height)
+            : RestoreBounds;
+        _settings.WindowLeft = r.Left;
+        _settings.WindowTop = r.Top;
+        _settings.WindowWidth = r.Width;
+        _settings.WindowHeight = r.Height;
+        _settings.WindowMaximized = WindowState == WindowState.Maximized;
+        _vm.SaveSettingsInto(_settings);
+        SettingsService.Save(_settings);
     }
 
     /// <summary>支援命令列帶檔開啟：STPViewer.exe a.stp b.stl …</summary>
@@ -34,6 +80,47 @@ public partial class MainWindow : Window
             .Where(StepImportService.IsSupported).ToArray();
         if (files.Length > 0)
             await _vm.ImportFilesAsync(files);
+    }
+
+    /// <summary>Esc / 量測模式快速鍵（焦點在輸入框時不攔截，樹搜尋、剖面數值可正常打字）</summary>
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.FocusedElement is TextBoxBase or ComboBox) return;
+        if (e.Key == Key.Escape)
+        {
+            _vm.OnEscape();
+            e.Handled = true;
+            return;
+        }
+        if (Keyboard.Modifiers != ModifierKeys.None) return;
+        if (_vm.OnHotKey(e.Key))
+            e.Handled = true;
+    }
+
+    /// <summary>最近檔案下拉（▾）：即時從 VM 的 MRU 清單組選單</summary>
+    private void Recent_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu
+        {
+            PlacementTarget = (UIElement)sender,
+            Placement = PlacementMode.Bottom,
+        };
+        if (_vm.RecentFiles.Count == 0)
+        {
+            menu.Items.Add(new MenuItem { Header = "（沒有最近開啟的檔案）", IsEnabled = false });
+        }
+        else
+        {
+            foreach (string f in _vm.RecentFiles)
+                menu.Items.Add(new MenuItem
+                {
+                    Header = System.IO.Path.GetFileName(f),
+                    ToolTip = f,
+                    Command = _vm.ImportRecentCommand,
+                    CommandParameter = f,
+                });
+        }
+        menu.IsOpen = true;
     }
 
     private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e) =>
