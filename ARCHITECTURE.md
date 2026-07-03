@@ -105,10 +105,11 @@ STPViewer/
         │
         ├── Services/
         │   ├── StepImportService.cs   # STEP/STL/DXF 讀檔 + 三角化 + 裝配樹
-        │   ├── MeasurementService.cs  # 點/線/面/圓/角度/面距 幾何計算
+        │   ├── MeasurementService.cs  # 點/線/面/圓/角度/面距/體積質心 幾何計算（吸附含圓心）
         │   ├── InterferenceService.cs # 干涉檢查：三角形-三角形相交(區間法)+均勻網格加速；無干涉時近似最小間隙
         │   ├── RigidAlign.cs          # 三點對齊/旋轉的剛體變換數學（Matrix3D列向量 ↔ ModOp行向量 轉換）
-        │   └── SectionService.cs      # 剖面：網格/線段半空間裁切
+        │   ├── SectionService.cs      # 剖面：網格/線段半空間裁切
+        │   └── SettingsService.cs     # 使用者設定 settings.json（視窗/單位/MRU；%LOCALAPPDATA%\STPViewer）
         │
         └── ViewModels/                        # MainViewModel 為 partial class，依職責分檔
             ├── MainViewModel.cs               # 核心：匯入、裝配樹、量測、剛體變換、邊線、單位
@@ -182,11 +183,15 @@ class MeasurementResult
 | 旋轉 | 樹面板選檔案 + 工具列 ↻X/↻Y/↻Z | 繞檔案中心 +90°（連按累加；方向不合時先轉正再對齊） |
 | 拖曳 | 模式「🖐 拖曳」（手形游標）+ 左鍵按住零件拖 | 沿螢幕平面移動該檔案，放開烘進 B-rep（拖曳中僅暫時 Transform，不卡） |
 | 操作器 | 「⊹ 操作器」+ 樹面板選檔案 | XYZ 箭頭沿軸移動、旋轉環繞軸轉任意角度（與視角無關）；每次放開烘進 B-rep |
-| 干涉 | 工具列「🧩 干涉」（需剛好 2 個可見檔案） | 相交→紅色交線+相交三角形對數；無相交→最小間隙 gap（≈0 即配合 match） |
-| 剖面 | 工具列「✂ 剖面」+ 軸向/位置/反向 | CPU 裁切渲染網格（原始幾何保留，量測仍精確） |
-| 單位 | 工具列 mm ⇄ in | 既有量測（清單+3D 標籤）即時換算 |
-| 匯出 | 💾 CSV / 📷 截圖 | UTF-8 BOM CSV；2x PNG |
-| 視圖 | 滑鼠右鍵旋轉/滾輪縮放/中鍵平移（Helix 預設）、ViewCube | |
+| 干涉 | 工具列「🧩 干涉」（≥2 個可見檔案，兩兩配對檢查） | 每組配對：相交→紅色交線+相交三角形對數；無相交→最小間隙 gap（≈0 即配合 match） |
+| 剖面 | 工具列「✂ 剖面」+ 軸向（X/Y/Z/**3點任意平面**）/位置（滑桿+數值輸入）/反向 | CPU 裁切渲染網格（原始幾何保留，量測仍精確）；3點=在模型上點 3 點定義平面 |
+| 單位 | 工具列 mm ⇄ in（隨設定保存） | 既有量測（清單+3D 標籤）即時換算 |
+| 匯出 | 💾 CSV / 📷 截圖 / 📤 STEP | UTF-8 BOM CSV；2x PNG；可見檔案目前位置寫成**新** STEP 檔（對齊結果交接 CAD） |
+| 視圖 | 滑鼠右鍵旋轉/滾輪縮放/中鍵平移（Helix 預設）、ViewCube、工具列 等角/前/上/右、正交⇄透視 | |
+| 快速鍵 | P 點 / D 距離 / E 邊 / F 面 / C 圓 / A 角度 / M 面距；同鍵再按=退出；Esc=取消進行中量測→退出模式 | |
+| 樹操作 | 搜尋框過濾節點名稱；右鍵：只顯示此節點 / 反轉顯示 / 全部顯示 / 量體積質心 | tooltip 含外形尺寸 L×W×H |
+| 體積/質心 | 樹節點右鍵「⚖ 量體積/質心」 | signed volume（封閉實體）+ 質心標記 + AABB 外形尺寸 |
+| 設定/MRU | 自動記住視窗位置大小、單位；「▾」最近 10 個檔案 | %LOCALAPPDATA%\STPViewer\settings.json |
 
 支援格式：`.stp` / `.step`（B-rep + 裝配樹）、`.stl`（純網格，僅點/距離/角度/面距量測）、
 `.dxf`（線架構檢視）。**IGES 不支援**（CADability 無 IGES reader）。
@@ -393,35 +398,44 @@ WPF retained-mode 每幀重走 visual tree → frame rate 崩。瀏覽模式因�
 
 ---
 
+## Development Phases — 第六輪（Future Extensions 實作 v0.5.0，全部完成）
+
+### Phase 14 — 功能擴充（工作量：L）
+
+**量測/操作：**
+- [x] 圓心吸附 — `Snap` 點到圓形邊（容差內）吸附圓心，與頂點比誰離命中點近；距離模式可直接量兩孔 pitch
+- [x] Esc 取消 — 先清進行中的多段量測（保留模式）→ 退回瀏覽 → 關操作器；量測快速鍵 P/D/E/F/C/A/M
+  （同鍵再按=退出；焦點在輸入框時不攔截）
+- [x] 體積/質心 — `MeasurementService.MeshVolume` signed volume + 加權質心；有向體積抵銷比例過高
+  （開放殼）判為不可靠並拒算；樹右鍵「⚖ 量體積/質心」→ 量測結果 + 質心標記
+
+**視圖/UI：**
+- [x] 標準視圖（等角/前/上/右，Z 向上機構慣例）+ 正交⇄透視（`HelixViewport3D.Orthographic`）；
+  gizmo 疊圖層相機「型別」跟隨主相機切換（透視/正交投影一致，操作器不錯位）
+- [x] GridSplitter ×2 — 樹面板/量測面板可調寬（MinWidth 防拖到消失）
+- [x] 節點外形尺寸 — `Bounds` setter 通知 `Stats`/`ToolTipText`，tooltip 顯示 L×W×H（變換後自動更新）
+- [x] 樹搜尋/過濾 — 名稱過濾（符合者+祖先+子樹顯示、自動展開）；只影響樹面板，不影響 3D；新匯入檔套用現行過濾
+- [x] 隔離顯示 — 樹右鍵：只顯示此節點/反轉顯示/全部顯示；`SetVisibleRecursive` 顯式遞迴
+  （不能只設 root：setter 同值不觸發 cascade，會留下混合狀態）
+- [x] 記住設定 + MRU — `SettingsService`（settings.json）：視窗位置大小（含虛擬桌面範圍檢查）、
+  mm/inch、最近 10 檔；工具列「▾」下拉
+
+**檔案/剖面：**
+- [x] 干涉 ≥2 可見檔 — 兩兩配對逐組檢查（網格先快照），每組一筆結果，狀態列總結相交組數
+- [x] 匯出 STEP — `CADability.ExportStep.WriteToFile` + `Project.CreateSimpleProject`；可見檔案的
+  Solid/Shell（目前對齊位置）寫成新檔；SmokeTest `--export-test` 往返驗證（8 實體出→回讀 8 實體一致）
+- [x] 3點任意剖面 — 軸向下拉加「3點」：模型上點 3 點定義平面（共線防呆、Esc 取消、換軸重置）；
+  平面位置改為「場景 AABB 8 角投影到法向」內插（軸向=舊行為、任意法向也成立）；位置加數值輸入框（0–100 防呆）
+
+**驗收：** ClipTest / AlignTest / InterferenceTest / ExportTest 全過；test.stp 匯入正常；建置 0 警告
+
+---
+
 ## Future Extensions（下一輪）
 
-依價值/成本排序（v0.4.0 盤點）：
-
-### 低成本高價值（建議下一輪優先）
-
-- **圓心吸附** — 距離模式點到圓邊時吸附到圓心 → 直接量兩孔 pitch（心到心距離），
-  連接器 pin pitch 確認的殺手級量測；實作只需在 `MeasurementService.Snap` 加掃該面的圓形 Edge
-- **Esc 取消** — 兩段式量測（距離/角度/三點對齊）按 Esc 清除 pending、再按退回瀏覽模式；
-  順手加量測模式快速鍵（P 點 / D 距離 / E 邊 / F 面 / C 圓…）
-- **GridSplitter** — 樹面板 / 量測面板寬度可調（現為固定 280 / 300 px，深層裝配樹名稱會被截斷）
-- **標準視圖 + 正交投影** — 前/上/右/等角視圖按鈕 + `OrthographicCamera` 切換（Helix 原生支援）；
-  工程師確認尺寸時正交投影是剛需，透視會騙眼睛
-- **節點外形尺寸** — 樹節點顯示該零件/組件 L×W×H（`Bounds` 已有，加進 Stats/tooltip 或做成一種量測）
-- **隔離顯示（Isolate）** — 樹節點右鍵「只顯示此節點」/「反轉顯示」，大組件找零件比逐個勾 checkbox 快
-- **記住設定 + 最近檔案** — 視窗大小、mm/inch、邊線開關存 user settings；匯入按鈕加 MRU 下拉
-
-### 中等成本
-
-- **體積/質心** — 封閉實體用網格 signed volume（各三角形對原點的四面體有向體積加總）近似，
-  對 match 驗證與料號確認有用
-- **樹搜尋/過濾** — 裝配樹上百零件時依名稱過濾
-- **干涉支援 >2 個可見檔** — 跳選擇配對對話框或兩兩檢查（現硬性要求剛好 2 個）
-- **對齊結果匯出 STEP** — 把目前場景（對齊後位置）輸出成新 STEP 檔，把配合結果交接出去；
-  需先驗證 CADability 有無 STEP writer；寫「新檔」不違反唯讀原則
-- **任意剖面** — 三點定義剖切平面 + 位置數值輸入框（`ClipMesh` 本就吃任意 plane point/normal，純 UI 工作）
 - **大檔重開快取** — 匯入成功後把三角網格 + 裝配樹序列化成 sidecar 快取檔（以來源檔 hash 驗證），
   重開同檔免等 CADability 解析（39MB 實測 276 秒）。取捨：B-rep 無法快取 → 量測退化成網格模式
-  或背景補載；是否值得取決於「重複開同一大檔」的頻率
+  或背景補載；是否值得取決於「重複開同一大檔」的頻率（v0.5.0 決議暫緩）
 
 ### 既有清單（維持）
 

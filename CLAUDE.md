@@ -2,9 +2,10 @@
 
 ## 專案簡介
 
-CAD 3D 檢視器（Windows 桌面 WPF, .NET 8）：STEP/STL/DXF 匯入、STEP 裝配樹、
-點/距離/邊/面/圓/角度/面距量測、兩點對齊（平移）、三點對齊（旋轉+平移）、軸向旋轉 90°、
-拖曳模式（手形游標直接拖零件）、干涉檢查、剖面、mm⇄inch、CSV/截圖匯出。
+CAD 3D 檢視器（Windows 桌面 WPF, .NET 8）：STEP/STL/DXF 匯入、STEP 裝配樹（搜尋/隔離顯示）、
+點/距離/邊/面/圓/角度/面距/體積質心量測（吸附含圓心）、兩點對齊（平移）、三點對齊（旋轉+平移）、
+軸向旋轉 90°、拖曳模式、干涉檢查（≥2 檔兩兩配對）、剖面（X/Y/Z + 3點任意平面）、
+標準視圖+正交投影、量測快速鍵+Esc、mm⇄inch、CSV/截圖/STEP 匯出、設定與 MRU 保存。
 詳細設計見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 技術棧
@@ -41,7 +42,18 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   邊界由面頂點數決定、平移不改 → 永久有效，`RebuildMerged` 不需重算。**不要因為「量測要逐面」而把渲染改回逐面**
 - 合併網格的 `BackMaterial`：封閉實體（`SolidCount≥1` 且 `HasBrep`）**不設**（WPF 兩面渲染成本砍半）；開放殼/STL 才設。
   **拾取不受材質影響**（WPF 3D hit-test 純幾何、不剔背面），故打合併網格仍命中孔內壁等背向面。逐面 `FacesContent` 一律保留 BackMaterial（剖切要看內部）
-- 量測值以 B-rep 為準（圓半徑、邊長、角度），面積/面距用網格近似
+- 量測值以 B-rep 為準（圓半徑、邊長、角度），面積/面距/體積/質心用網格近似
+- `Snap` 吸附順序（v0.5.0）：頂點與「圓形邊」都在容差內比誰離命中點近，圓邊勝出時回傳**圓心**
+  （量孔對孔 pitch 靠這個）。不要把圓心吸附拿掉或改成永遠優先頂點
+- 鍵盤快速鍵在 `MainWindow.Window_PreviewKeyDown`：**焦點在 TextBoxBase/ComboBox 時直接 return**
+  （樹搜尋框、剖面數值框要能打字），新增輸入控件不用再各自處理
+- 使用者設定 `SettingsService`（%LOCALAPPDATA%\STPViewer\settings.json）：視窗（MainWindow 管）+
+  單位/MRU（VM `LoadSettings`/`SaveSettingsInto`）；壞檔回預設、儲存失敗靜默
+- 匯出 STEP 走 `CADability.ExportStep.WriteToFile(file, Project.CreateSimpleProject()+Model.Add)`；
+  只收 Solid/Shell（STL/DXF 無 B-rep 進不了）；改動要跑 `SmokeTest --export-test` 往返驗證
+- 3點剖面（SectionAxisIndex==3）：`_customNormal` null = 拾取中（`HandleSectionPlanePick` 在
+  OnViewportClick 最前面攔點擊）；換軸/關剖面/Esc 會重置。平面位置一律用「AABB 8 角投影到法向」內插，
+  軸向與任意法向共用同一段程式，不要改回逐軸特化
 - 量測文字一律 `Func<UnitSystem,string>` 延後產生（mm⇄inch 即時切換）；內部數值永遠存 mm
 - 裝配樹節點（`ModelNodeViewModel`）的可見性/邊線/顏色向下 cascade
 - 剖面只換 `GeometryModel3D.Geometry`（`FaceInfo.Mesh` 保留原始 frozen mesh 供還原與量測）
@@ -98,7 +110,8 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 - 不寫入原始檔（唯讀工具）；WPF 限 Windows，不要嘗試移植 vbox/Linux
 - 干涉檢查需剛好 2 個可見檔案（樹面板勾選）；共面貼合（無穿透）不算干涉、gap≈0 視為配合（match）
 - SmokeTest 工具：`--tree`（裝配樹）、`--clip-test`（剖切數學）、`--interference-test`（干涉相交/分離/貼合）、
-  `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）
+  `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）、
+  `--export-test <in.stp> <out.stp>`（STEP 匯出往返：寫出→回讀比對實體數）
 - **絕不要用 PowerShell regex/Set-Content 改 .cs 檔** — Windows PowerShell 5.1 預設編碼會把 UTF-8 中文弄成亂碼（已踩過，靠反編譯 DLL 救回）。文字取代一律用 Edit 工具
 
 ## For_AI/
