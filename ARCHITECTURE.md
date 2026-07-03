@@ -12,12 +12,15 @@ STEP（`.stp` / `.step`）檔案做確認與量測，不需要安裝 SolidWorks 
 核心價值：
 
 - **多檔匯入**：一次載入多個 CAD 檔（STEP / STL / DXF），每個檔案自成一棵樹
-- **裝配樹**：STEP product structure 還原成樹狀節點（組件→零件），逐節點 顯示/隱藏、換色、Zoom-to
+- **裝配樹**：STEP product structure 還原成樹狀節點（組件→零件），逐節點 顯示/隱藏、換色、Zoom-to；
+  名稱搜尋過濾、隔離顯示（只顯示此節點/反轉/全顯）、tooltip 外形尺寸
 - **量測**：點座標、兩點距離、邊長、面（面積/類型/法向量）、圓（心/半徑/直徑/周長）、
-  兩面/兩邊夾角、面到面最短距離；單位 mm ⇄ inch 即時切換
-- **剖面**：X/Y/Z 軸向剖切，位置滑桿 + 反向，CPU 網格裁切（量測不受影響）
-- **匯出**：量測結果 CSV、3D 視圖 PNG 截圖（2x）
-- 單機離線執行，無網路相依
+  兩面/兩邊夾角、面到面最短距離、體積/質心；吸附含**圓心**（量孔對孔 pitch）；
+  快速鍵 P/D/E/F/C/A/M + Esc；單位 mm ⇄ inch 即時切換
+- **剖面**：X/Y/Z 軸向 + **3點任意平面**，位置滑桿/數值輸入 + 反向，CPU 網格裁切（量測不受影響）
+- **視圖**：標準視圖（等角/前/上/右）+ 正交⇄透視投影
+- **匯出**：量測結果 CSV、3D 視圖 PNG 截圖（2x）、**目前對齊位置寫成新 STEP 檔**
+- 單機離線執行，無網路相依；視窗/單位/最近檔案自動保存（settings.json）
 
 使用者：單一桌面使用者（無登入 / 角色系統）。
 
@@ -99,7 +102,7 @@ STPViewer/
         │
         ├── Models/
         │   ├── FaceInfo.cs            # GeometryModel3D ↔ B-rep Face 對照（STL 為 null）
-        │   ├── MeasureMode.cs         # enum: None/Point/Distance/Edge/Face/Circle/Angle/FaceDistance/Align/Align3/Drag/Interference
+        │   ├── MeasureMode.cs         # enum: None/Point/Distance/Edge/Face/Circle/Angle/FaceDistance/Align/Align3/Drag/Interference/Volume
         │   ├── MeasurementResult.cs   # 量測結果（雙單位 lambda、3D 標籤同步）
         │   └── UnitSystem.cs          # mm/inch + Units 格式化
         │
@@ -128,29 +131,30 @@ STPViewer/
 桌面程式無資料庫；核心為記憶體內模型：
 
 ```csharp
-// 一個匯入檔 = 一個圖層
-class LayerItemViewModel
+// 裝配樹節點：root = 匯入檔、group = STEP 裝配、leaf = 零件幾何（可見性/顏色向下 cascade）
+class ModelNodeViewModel
 {
-    string  Name;            // 檔名（不含路徑）
-    string  FilePath;
-    bool    IsVisible;       // 切換 viewport 中的 ModelVisual3D
-    Color   Color;           // 圖層色（換色重建材質）
+    string  Name;            // root = 檔名；group/leaf = STEP product 名
+    string? FilePath;        // root 才有值
+    bool    IsVisible;       // 切換 viewport 中的 ModelVisual3D（cascade）
+    bool    IsFilterVisible; // 樹搜尋過濾結果（只影響樹面板顯示）
+    Color   Color;           // 節點色（換色只改共用 Brush）
     int     SolidCount, FaceCount, TriangleCount;
-    ModelVisual3D BodyVisual;    // 面網格
-    ModelVisual3D EdgeVisual;    // 輪廓線
-    Rect3D  Bounds;          // Zoom-to 用
+    ModelVisual3D BodyVisual;    // leaf：面網格容器（合併/逐面兩種內容切換）
+    LinesVisual3D EdgeVisual;    // root：整檔合併輪廓線
+    Rect3D  Bounds;          // Zoom-to / 外形尺寸 / 旋轉中心
 }
 
 // HitTest 反查：渲染物件 → B-rep
 class FaceInfo
 {
-    object Face;             // CADability Face（量測用 B-rep）
-    LayerItemViewModel Owner;
+    Face? BrepFace;          // CADability Face（量測用 B-rep；STL 為 null）
+    ModelNodeViewModel Owner;
     MeshGeometry3D Mesh;     // 面積近似 / 頂點吸附
 }
 
 enum MeasureMode { None, Point, Distance, Edge, Face, Circle,
-                   Angle, FaceDistance, Align, Align3, Drag, Interference }
+                   Angle, FaceDistance, Align, Align3, Drag, Interference, Volume }
 
 class MeasurementResult
 {
