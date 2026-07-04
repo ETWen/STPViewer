@@ -5,7 +5,7 @@
 CAD 3D 檢視器（Windows 桌面 WPF, .NET 8）：STEP/STL/DXF 匯入、STEP 裝配樹（搜尋/隔離顯示）、
 點/距離/邊/面/圓/角度/面距/體積質心量測（吸附含圓心）、兩點對齊（平移）、三點對齊（旋轉+平移）、
 軸向旋轉 90°、拖曳模式、干涉檢查（≥2 檔兩兩配對）、剖面（X/Y/Z + 3點任意平面）、
-標準視圖+正交投影、量測快速鍵+Esc、mm⇄inch、CSV/截圖/STEP 匯出、設定與 MRU 保存。
+標準視圖+正交投影、量測快速鍵+Esc、mm⇄inch、CSV/截圖/STEP/STL 匯出（STL 有參數對話框）、設定與 MRU 保存。
 詳細設計見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 技術棧
@@ -51,6 +51,12 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   單位/MRU（VM `LoadSettings`/`SaveSettingsInto`）；壞檔回預設、儲存失敗靜默
 - 匯出 STEP 走 `CADability.ExportStep.WriteToFile(file, Project.CreateSimpleProject()+Model.Add)`；
   只收 Solid/Shell（STL/DXF 無 B-rep 進不了）；改動要跑 `SmokeTest --export-test` 往返驗證
+- 匯出 STL（`StlExportService` + 參數對話框）：**背景寫檔前必須在 UI 執行緒快照 mesh** —
+  `GeometryModel3D`/`Model3DGroup` 是 DispatcherObject 跨執行緒會炸（v0.6.0 踩過），
+  背景只能碰 frozen `MeshGeometry3D` 與 CADability B-rep。精度只有「目前網格/精細」兩檔：
+  CADability `GetTriangulation` 對比快取粗的精度回傳既有快取（粗化無效），且三角形數對精度
+  **非單調**（0.4× 反而比 1× 少），精細 = 0.15×（匯入 clamp 後再乘，保證嚴格更細）。
+  改動要跑 `SmokeTest --stl-export-test For_AI/test.stp`
 - 3點剖面（SectionAxisIndex==3）：`_customNormal` null = 拾取中（`HandleSectionPlanePick` 在
   OnViewportClick 最前面攔點擊）；換軸/關剖面/Esc 會重置。平面位置一律用「AABB 8 角投影到法向」內插，
   軸向與任意法向共用同一段程式，不要改回逐軸特化
@@ -111,7 +117,8 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 - 干涉檢查需剛好 2 個可見檔案（樹面板勾選）；共面貼合（無穿透）不算干涉、gap≈0 視為配合（match）
 - SmokeTest 工具：`--tree`（裝配樹）、`--clip-test`（剖切數學）、`--interference-test`（干涉相交/分離/貼合）、
   `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）、
-  `--export-test <in.stp> <out.stp>`（STEP 匯出往返：寫出→回讀比對實體數）
+  `--export-test <in.stp> <out.stp>`（STEP 匯出往返：寫出→回讀比對實體數）、
+  `--stl-export-test [file.stp]`（STL binary/ASCII 往返 + 退化濾除；給 stp 加測 B-rep 精細重算）
 - **絕不要用 PowerShell regex/Set-Content 改 .cs 檔** — Windows PowerShell 5.1 預設編碼會把 UTF-8 中文弄成亂碼（已踩過，靠反編譯 DLL 救回）。文字取代一律用 Edit 工具
 
 ## For_AI/

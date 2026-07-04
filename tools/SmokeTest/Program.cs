@@ -38,6 +38,9 @@ if (args[0] == "--bbox")
 if (args[0] == "--export-test")
     return SmokeTest.ExportTest.Run(args[1], args[2]) == 0 ? 0 : 2;
 
+if (args[0] == "--stl-export-test")
+    return SmokeTest.StlExportTest.Run(args.Length > 1 ? args[1] : null) == 0 ? 0 : 2;
+
 var service = new StepImportService { Progress = s => Console.WriteLine($"  [階段] {s}") };
 int failed = 0;
 

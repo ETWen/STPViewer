@@ -94,6 +94,8 @@
                         ToolTip="3D 視圖截圖存 PNG（2x 解析度）">📷 截圖</Button>
                 <Button Command="{Binding ExportStepFileCommand}" Padding="8,4" FontSize="13"
                         ToolTip="把可見檔案（目前對齊位置）匯出成新 STEP 檔 — 對齊插合結果可交接 CAD；不動原始檔">📤 STEP</Button>
+                <Button Command="{Binding ExportStlFileCommand}" Padding="8,4" FontSize="13"
+                        ToolTip="把可見檔案（目前位置）匯出成 STL 網格檔 — 先設定範圍/格式/單位/精度，確認再匯出">📐 STL</Button>
             </ToolBar>
             <ToolBar>
                 <ToggleButton IsChecked="{Binding SectionEnabled}" Padding="8,4" FontSize="13"
