@@ -133,6 +133,10 @@
                 <Separator />
                 <MenuItem Header="恢復預設按鈕" Command="{Binding QuickBar.ResetDefaultsCommand}" />
             </MenuItem>
+            <MenuItem Header="說明(_H)">
+                <MenuItem Header="ℹ 關於 STPViewer…" Click="About_Click"
+                          ToolTip="程式資訊與版本紀錄" />
+            </MenuItem>
         </Menu>
 
         <!-- ─── 快速工具列（可自訂：選單「快速列 → 自訂按鈕」勾選）─── -->

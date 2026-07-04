@@ -97,6 +97,9 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   放開事件靠 overlay 的 `AddHandler(MouseLeftButtonUp, handledEventsToo:true)`（manipulator 會標 handled），`_gizmoBakePending` 防同次重複烘焙
 - 干涉/面距/對齊等運算在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - 匯入在背景執行緒；`Freeze()` 幾何後才跨執行緒
+- 發新版：升 csproj `<Version>` 之外，記得在 `AboutDialog.xaml.cs` 的 `Changelog` 陣列**頂端**加一筆
+  （口吻寫給一般使用者：「你會感覺到什麼」，不是技術 changelog）。
+  ⚠️ WPF **頂層 MenuItem 直接掛 Click 不會觸發**（實測滑鼠/鍵盤都沒反應），要開視窗的入口一律放子選單（如 說明 → 關於）
 - Commit 格式：Conventional Commits（`feat:` / `fix:` / `docs:` …）
 
 ## 注意事項 / 已知限制

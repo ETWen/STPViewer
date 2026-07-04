@@ -123,6 +123,9 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
+    private void About_Click(object sender, RoutedEventArgs e) =>
+        new AboutDialog { Owner = this }.ShowDialog();
+
     private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e) =>
         _vm.SelectedNode = e.NewValue as ModelNodeViewModel;
 

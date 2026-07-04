@@ -108,6 +108,7 @@ STPViewer/
         │   └── UnitSystem.cs          # mm/inch + Units 格式化
         │
         ├── StlExportDialog.xaml / .cs # STL 匯出參數對話框（範圍/格式/單位/精度 + 預估，確認再匯出）
+        ├── AboutDialog.xaml / .cs     # 關於視窗（程式/開發者/技術棧 + 使用者版 changelog）
         │
         ├── Services/
         │   ├── StepImportService.cs   # STEP/STL/DXF 讀檔 + 三角化 + 裝配樹
@@ -480,6 +481,8 @@ WPF retained-mode 每幀重走 visual tree → frame rate 崩。瀏覽模式因�
 - [x] 勾選清單隨 settings.json（`QuickBarKeys`）保存；null/新按鈕用註冊表預設值
 - [x] **剖面參數列**獨立成第三列，只在 `SectionEnabled` 時顯示（含「✕ 關閉」）；
       平常整條隱藏，不再常駐佔位
+- [x] **關於視窗**（`AboutDialog`，選單「說明 → 關於 STPViewer」）— 程式資訊/開發者/技術棧 +
+      給一般使用者看的版本紀錄（樣式參考 ETTerms AboutView）；發新版在 Changelog 陣列頂端加一筆
 
 **驗收：** 選單所有功能可用（checkable 與工具列 toggle 同步）；快速列勾選即時增減、重開保留；
 既有快速鍵 P/D/E/F/C/A/M + Esc 不受影響
