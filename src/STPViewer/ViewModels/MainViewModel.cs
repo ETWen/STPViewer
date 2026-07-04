@@ -65,6 +65,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(RotateRootCommand))]
     [NotifyCanExecuteChangedFor(nameof(CheckInterferenceCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportStepFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportStlFileCommand))]
     private bool isBusy;
 
     [ObservableProperty]

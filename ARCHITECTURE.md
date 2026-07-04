@@ -19,7 +19,8 @@ STEP（`.stp` / `.step`）檔案做確認與量測，不需要安裝 SolidWorks 
   快速鍵 P/D/E/F/C/A/M + Esc；單位 mm ⇄ inch 即時切換
 - **剖面**：X/Y/Z 軸向 + **3點任意平面**，位置滑桿/數值輸入 + 反向，CPU 網格裁切（量測不受影響）
 - **視圖**：標準視圖（等角/前/上/右）+ 正交⇄透視投影
-- **匯出**：量測結果 CSV、3D 視圖 PNG 截圖（2x）、**目前對齊位置寫成新 STEP 檔**
+- **匯出**：量測結果 CSV、3D 視圖 PNG 截圖（2x）、**目前對齊位置寫成新 STEP 檔**、
+  **STL 網格檔**（參數對話框：合併/每檔、binary/ASCII、mm/inch/自訂縮放、精度，確認再匯出）
 - 單機離線執行，無網路相依；視窗/單位/最近檔案自動保存（settings.json）
 
 使用者：單一桌面使用者（無登入 / 角色系統）。
@@ -106,13 +107,16 @@ STPViewer/
         │   ├── MeasurementResult.cs   # 量測結果（雙單位 lambda、3D 標籤同步）
         │   └── UnitSystem.cs          # mm/inch + Units 格式化
         │
+        ├── StlExportDialog.xaml / .cs # STL 匯出參數對話框（範圍/格式/單位/精度 + 預估，確認再匯出）
+        │
         ├── Services/
         │   ├── StepImportService.cs   # STEP/STL/DXF 讀檔 + 三角化 + 裝配樹
         │   ├── MeasurementService.cs  # 點/線/面/圓/角度/面距/體積質心 幾何計算（吸附含圓心）
         │   ├── InterferenceService.cs # 干涉檢查：三角形-三角形相交(區間法)+均勻網格加速；無干涉時近似最小間隙
         │   ├── RigidAlign.cs          # 三點對齊/旋轉的剛體變換數學（Matrix3D列向量 ↔ ModOp行向量 轉換）
         │   ├── SectionService.cs      # 剖面：網格/線段半空間裁切
-        │   └── SettingsService.cs     # 使用者設定 settings.json（視窗/單位/MRU；%LOCALAPPDATA%\STPViewer）
+        │   ├── SettingsService.cs     # 使用者設定 settings.json（視窗/單位/MRU；%LOCALAPPDATA%\STPViewer）
+        │   └── StlExportService.cs    # STL 匯出：binary/ASCII 寫檔 + B-rep 重新三角化（精細）
         │
         └── ViewModels/                        # MainViewModel 為 partial class，依職責分檔
             ├── MainViewModel.cs               # 核心：匯入、裝配樹、量測、剛體變換、邊線、單位
@@ -120,7 +124,8 @@ STPViewer/
             ├── MainViewModel.Gizmo.cs         # 三軸操作器 + 疊圖層相機
             ├── MainViewModel.Section.cs       # 剖面（v0.4.0 起背景平行裁切）
             ├── MainViewModel.Interference.cs  # 干涉檢查指令
-            ├── MainViewModel.Export.cs        # CSV / 截圖匯出
+            ├── MainViewModel.Export.cs        # CSV / 截圖 / STEP / STL 匯出
+            ├── StlExportViewModel.cs          # STL 匯出對話框 VM（選項 + 即時摘要）
             └── ModelNodeViewModel.cs          # 裝配樹節點（可見性/顏色 cascade）
 ```
 
@@ -190,7 +195,7 @@ class MeasurementResult
 | 干涉 | 工具列「🧩 干涉」（≥2 個可見檔案，兩兩配對檢查） | 每組配對：相交→紅色交線+相交三角形對數；無相交→最小間隙 gap（≈0 即配合 match） |
 | 剖面 | 工具列「✂ 剖面」+ 軸向（X/Y/Z/**3點任意平面**）/位置（滑桿+數值輸入）/反向 | CPU 裁切渲染網格（原始幾何保留，量測仍精確）；3點=在模型上點 3 點定義平面 |
 | 單位 | 工具列 mm ⇄ in（隨設定保存） | 既有量測（清單+3D 標籤）即時換算 |
-| 匯出 | 💾 CSV / 📷 截圖 / 📤 STEP | UTF-8 BOM CSV；2x PNG；可見檔案目前位置寫成**新** STEP 檔（對齊結果交接 CAD） |
+| 匯出 | 💾 CSV / 📷 截圖 / 📤 STEP / 📐 STL | UTF-8 BOM CSV；2x PNG；可見檔案目前位置寫成**新** STEP 檔（對齊結果交接 CAD）；STL 先開參數對話框（範圍/格式/單位/精度 + 三角形數與大小預估）確認再匯出 |
 | 視圖 | 滑鼠右鍵旋轉/滾輪縮放/中鍵平移（Helix 預設）、ViewCube、工具列 等角/前/上/右、正交⇄透視 | |
 | 快速鍵 | P 點 / D 距離 / E 邊 / F 面 / C 圓 / A 角度 / M 面距；同鍵再按=退出；Esc=取消進行中量測→退出模式 | |
 | 樹操作 | 搜尋框過濾節點名稱；右鍵：只顯示此節點 / 反轉顯示 / 全部顯示 / 量體積質心 | tooltip 含外形尺寸 L×W×H |
@@ -432,6 +437,29 @@ WPF retained-mode 每幀重走 visual tree → frame rate 崩。瀏覽模式因�
   平面位置改為「場景 AABB 8 角投影到法向」內插（軸向=舊行為、任意法向也成立）；位置加數值輸入框（0–100 防呆）
 
 **驗收：** ClipTest / AlignTest / InterferenceTest / ExportTest 全過；test.stp 匯入正常；建置 0 警告
+
+---
+
+## Development Phases — 第七輪（STL 匯出 v0.6.0，全部完成）
+
+### Phase 15 — STL 匯出（工作量：M）
+
+- [x] `StlExportService` — binary（80B header + placeholder 補三角形數）/ ASCII 寫檔，
+      退化（零面積）三角形濾除、逐三角形自算法向量；`Tessellate` 由 B-rep 重新三角化
+- [x] 參數對話框（`StlExportDialog` + `StlExportViewModel`）— 範圍（合併單檔/每檔一個）、
+      格式（binary/ASCII）、單位縮放（mm / inch ÷25.4 / 自訂）、網格精度（目前網格/精細）、
+      即時摘要（檔案數/三角形數/預估大小），**確認才選路徑匯出**
+- [x] 背景執行緒寫檔 — UI 先快照 frozen mesh（`GeometryModel3D` 是 DispatcherObject
+      不可跨執行緒，v0.6.0 修正），背景只碰 frozen `MeshGeometry3D` + CADability B-rep
+- [x] SmokeTest `--stl-export-test [file.stp]`：binary 往返（含 inch 縮放）、ASCII 結構、
+      退化三角形濾除、真檔精細重算三角形數 > 匯入預設
+
+**CADability 三角化兩個實測特性（設計依據）：**
+1. `GetTriangulation` 對「比快取粗」的精度要求直接回傳既有較細快取 → 「較粗」選項無效，誠實不提供
+2. 三角形數對精度**非單調**（0.4× 重算反而比 1× 少 — 重算網格較有效率），
+   要明顯更細需 ≤0.15×（test.stp：1× = 30,784 → 0.15× = 35,228）→ 精細係數定 0.15
+
+**驗收：** StlExportTest 5 項全過；既有 ClipTest/AlignTest/InterferenceTest 回歸全過；建置 0 警告
 
 ---
 
