@@ -12,8 +12,14 @@
 
     <Window.Resources>
         <conv:EnumToBoolConverter x:Key="ModeConv" />
+        <conv:FileNameConverter x:Key="FileNameConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <Style x:Key="ModeButton" TargetType="ToggleButton">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="2,0" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style x:Key="QuickButton" TargetType="Button">
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="Margin" Value="2,0" />
             <Setter Property="FontSize" Value="13" />
@@ -21,102 +27,234 @@
     </Window.Resources>
 
     <DockPanel>
-        <!-- ─── 工具列 ─── -->
+        <!-- ─── 選單列（全部功能，分類下拉）─── -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="檔案(_F)">
+                <MenuItem Header="📂 匯入…" Command="{Binding ImportCommand}"
+                          ToolTip="匯入 STP/STEP/STL/DXF（可複選，也可直接拖放到視窗）" />
+                <MenuItem Header="最近檔案" ItemsSource="{Binding RecentFiles}">
+                    <MenuItem.ItemContainerStyle>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Header" Value="{Binding Converter={StaticResource FileNameConv}}" />
+                            <Setter Property="ToolTip" Value="{Binding}" />
+                            <Setter Property="Command"
+                                    Value="{Binding DataContext.ImportRecentCommand, RelativeSource={RelativeSource AncestorType=Menu}}" />
+                            <Setter Property="CommandParameter" Value="{Binding}" />
+                        </Style>
+                    </MenuItem.ItemContainerStyle>
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="💾 匯出量測 CSV…" Command="{Binding ExportCsvCommand}" />
+                <MenuItem Header="📷 視圖截圖 PNG…" Command="{Binding SaveScreenshotCommand}"
+                          ToolTip="3D 視圖截圖存 PNG（2x 解析度）" />
+                <MenuItem Header="📤 匯出 STEP…" Command="{Binding ExportStepFileCommand}"
+                          ToolTip="把可見檔案（目前對齊位置）匯出成新 STEP 檔；不動原始檔" />
+                <MenuItem Header="📐 匯出 STL…" Command="{Binding ExportStlFileCommand}"
+                          ToolTip="先設定範圍/格式/單位/精度，確認再匯出" />
+            </MenuItem>
+            <MenuItem Header="視圖(_V)">
+                <MenuItem Header="🔍 縮放至全部" Command="{Binding ZoomAllCommand}" />
+                <Separator />
+                <MenuItem Header="等角視圖" Command="{Binding SetStandardViewCommand}" CommandParameter="Iso" />
+                <MenuItem Header="前視圖" Command="{Binding SetStandardViewCommand}" CommandParameter="Front"
+                          ToolTip="-Y 方向看，Z 向上" />
+                <MenuItem Header="上視圖" Command="{Binding SetStandardViewCommand}" CommandParameter="Top"
+                          ToolTip="+Z 往下看" />
+                <MenuItem Header="右視圖" Command="{Binding SetStandardViewCommand}" CommandParameter="Right"
+                          ToolTip="+X 方向看，Z 向上" />
+                <Separator />
+                <MenuItem Header="正交投影" IsCheckable="True" IsChecked="{Binding OrthographicView}"
+                          ToolTip="平行投影，量尺寸不受透視變形；取消勾選切回透視" />
+                <MenuItem Header="單位顯示 inch（mm ⇄ in）" IsCheckable="True" IsChecked="{Binding UseInch}"
+                          ToolTip="既有量測即時換算；內部一律存 mm" />
+            </MenuItem>
+            <MenuItem Header="量測(_M)">
+                <MenuItem Header="📍 點座標" IsCheckable="True" InputGestureText="P"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Point}"
+                          ToolTip="量測點座標（吸附頂點/圓心）" />
+                <MenuItem Header="📏 兩點距離" IsCheckable="True" InputGestureText="D"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Distance}"
+                          ToolTip="兩點距離 + ΔXYZ（點到圓邊會吸圓心 → 可量孔對孔 pitch）" />
+                <MenuItem Header="📐 邊長" IsCheckable="True" InputGestureText="E"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Edge}"
+                          ToolTip="邊長（直線/曲線/圓弧）" />
+                <MenuItem Header="⬛ 面" IsCheckable="True" InputGestureText="F"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Face}"
+                          ToolTip="面積 + 曲面類型/法向量" />
+                <MenuItem Header="⭕ 圓" IsCheckable="True" InputGestureText="C"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Circle}"
+                          ToolTip="圓心/半徑/直徑/周長" />
+                <MenuItem Header="∠ 角度" IsCheckable="True" InputGestureText="A"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Angle}"
+                          ToolTip="兩面/兩邊夾角（點兩個面或靠近直線邊）" />
+                <MenuItem Header="⇔ 面距" IsCheckable="True" InputGestureText="M"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=FaceDistance}"
+                          ToolTip="面到面最短距離（網格近似）" />
+                <Separator />
+                <MenuItem Header="🧹 清除全部量測" Command="{Binding ClearMeasurementsCommand}"
+                          InputGestureText="Esc" ToolTip="Esc = 取消進行中量測/退出模式" />
+            </MenuItem>
+            <MenuItem Header="變換(_T)">
+                <MenuItem Header="🎯 兩點對齊（平移）" IsCheckable="True"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Align}"
+                          ToolTip="先點要移動零件上的點，再點目標點" />
+                <MenuItem Header="🎯 三點對齊（旋轉+平移）" IsCheckable="True"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Align3}"
+                          ToolTip="先在要移動的檔案點 3 個特徵點，再到目標檔案點 3 個對應點（順序對應）" />
+                <MenuItem Header="🖐 拖曳模式" IsCheckable="True"
+                          IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Drag}"
+                          ToolTip="左鍵按住零件沿螢幕平面拖動，放開定位" />
+                <MenuItem Header="⊹ 三軸操作器" IsCheckable="True" IsChecked="{Binding GizmoEnabled}"
+                          ToolTip="對樹面板選取的檔案顯示 XYZ 箭頭與旋轉環，每次放開即定位" />
+                <Separator />
+                <MenuItem Header="↻ 繞 X 軸 +90°" Command="{Binding RotateRootCommand}" CommandParameter="X"
+                          ToolTip="對樹面板選取的檔案，繞其中心旋轉（先在樹面板點選檔案）" />
+                <MenuItem Header="↻ 繞 Y 軸 +90°" Command="{Binding RotateRootCommand}" CommandParameter="Y" />
+                <MenuItem Header="↻ 繞 Z 軸 +90°" Command="{Binding RotateRootCommand}" CommandParameter="Z" />
+            </MenuItem>
+            <MenuItem Header="工具(_L)">
+                <MenuItem Header="🧩 干涉檢查" Command="{Binding CheckInterferenceCommand}"
+                          ToolTip="2 個以上可見檔案兩兩檢查是否相交；無相交時回報最小間隙" />
+                <MenuItem Header="✂ 剖面檢視" IsCheckable="True" IsChecked="{Binding SectionEnabled}"
+                          ToolTip="開啟後下方出現剖面參數列（軸向/位置/反向）" />
+            </MenuItem>
+            <MenuItem Header="快速列(_Q)">
+                <MenuItem Header="自訂按鈕" ItemsSource="{Binding QuickBar.Items}"
+                          ToolTip="勾選要顯示在快速列的常用按鈕（隨設定保存）">
+                    <MenuItem.ItemContainerStyle>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Header" Value="{Binding Label}" />
+                            <Setter Property="IsCheckable" Value="True" />
+                            <Setter Property="IsChecked" Value="{Binding IsChecked}" />
+                            <Setter Property="StaysOpenOnClick" Value="True" />
+                        </Style>
+                    </MenuItem.ItemContainerStyle>
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="恢復預設按鈕" Command="{Binding QuickBar.ResetDefaultsCommand}" />
+            </MenuItem>
+        </Menu>
+
+        <!-- ─── 快速工具列（可自訂：選單「快速列 → 自訂按鈕」勾選）─── -->
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
-                <Button Command="{Binding ImportCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding ImportCommand}"
+                        Visibility="{Binding QuickBar[Import].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="匯入 STP/STEP/STL/DXF（可複選，也可直接拖放到視窗）">📂 匯入</Button>
-                <Button Click="Recent_Click" Padding="4,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Click="Recent_Click" Padding="4,4"
+                        Visibility="{Binding QuickBar[Recent].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="最近開啟的檔案">▾</Button>
-                <Button Command="{Binding ZoomAllCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding ZoomAllCommand}"
+                        Visibility="{Binding QuickBar[ZoomAll].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="縮放至全部模型">🔍 全覽</Button>
-                <Separator />
-                <TextBlock Text="視圖：" VerticalAlignment="Center" Margin="4,0,2,0" />
-                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Iso" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding SetStandardViewCommand}" CommandParameter="Iso"
+                        Visibility="{Binding QuickBar[ViewIso].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="等角視圖">等角</Button>
-                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Front" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding SetStandardViewCommand}" CommandParameter="Front"
+                        Visibility="{Binding QuickBar[ViewFront].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="前視圖（-Y 方向看，Z 向上）">前</Button>
-                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Top" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding SetStandardViewCommand}" CommandParameter="Top"
+                        Visibility="{Binding QuickBar[ViewTop].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="上視圖（+Z 往下看）">上</Button>
-                <Button Command="{Binding SetStandardViewCommand}" CommandParameter="Right" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding SetStandardViewCommand}" CommandParameter="Right"
+                        Visibility="{Binding QuickBar[ViewRight].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="右視圖（+X 方向看，Z 向上）">右</Button>
-                <ToggleButton IsChecked="{Binding OrthographicView}" Padding="6,4" FontSize="13" Margin="2,0"
+                <ToggleButton Style="{StaticResource ModeButton}" IsChecked="{Binding OrthographicView}"
+                              Visibility="{Binding QuickBar[Ortho].IsChecked, Converter={StaticResource BoolToVis}}"
                               ToolTip="正交投影（平行投影，量尺寸不受透視變形；再按切回透視）">正交</ToggleButton>
-                <Separator />
-                <TextBlock Text="量測：" VerticalAlignment="Center" Margin="4,0,2,0" />
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="量測點座標（吸附頂點/圓心）— 快速鍵 P"
+                              Visibility="{Binding QuickBar[Point].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Point}">📍 點</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="兩點距離 + ΔXYZ（點到圓邊會吸圓心 → 可量孔對孔 pitch）— 快速鍵 D"
+                              Visibility="{Binding QuickBar[Distance].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Distance}">📏 距離</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="邊長（直線/曲線/圓弧）— 快速鍵 E"
+                              Visibility="{Binding QuickBar[Edge].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Edge}">📐 邊</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="面積 + 曲面類型/法向量 — 快速鍵 F"
+                              Visibility="{Binding QuickBar[Face].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Face}">⬛ 面</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="圓心/半徑/直徑/周長 — 快速鍵 C"
+                              Visibility="{Binding QuickBar[Circle].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Circle}">⭕ 圓</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="兩面/兩邊夾角（點兩個面或靠近直線邊）— 快速鍵 A"
+                              Visibility="{Binding QuickBar[Angle].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Angle}">∠ 角度</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}" ToolTip="面到面最短距離（網格近似）— 快速鍵 M"
+                              Visibility="{Binding QuickBar[FaceDistance].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=FaceDistance}">⇔ 面距</ToggleButton>
-                <Separator />
                 <ToggleButton Style="{StaticResource ModeButton}"
                               ToolTip="兩點對齊（平移零件）：先點要移動零件上的點，再點目標點"
+                              Visibility="{Binding QuickBar[Align].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Align}">🎯 對齊</ToggleButton>
                 <ToggleButton Style="{StaticResource ModeButton}"
                               ToolTip="三點對齊（旋轉+平移）：先在要移動的檔案點 3 個特徵點，再到目標檔案點 3 個對應點（順序對應）"
+                              Visibility="{Binding QuickBar[Align3].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Align3}">🎯 三點</ToggleButton>
-                <Separator />
-                <TextBlock Text="旋轉：" VerticalAlignment="Center" Margin="4,0,2,0"
-                           ToolTip="對樹面板選取的檔案，繞其中心旋轉 +90°" />
-                <Button Command="{Binding RotateRootCommand}" CommandParameter="X" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding RotateRootCommand}" CommandParameter="X"
+                        Visibility="{Binding QuickBar[RotateX].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="選取的檔案繞 X 軸 +90°（先在樹面板點選檔案）">↻X</Button>
-                <Button Command="{Binding RotateRootCommand}" CommandParameter="Y" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding RotateRootCommand}" CommandParameter="Y"
+                        Visibility="{Binding QuickBar[RotateY].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="選取的檔案繞 Y 軸 +90°">↻Y</Button>
-                <Button Command="{Binding RotateRootCommand}" CommandParameter="Z" Padding="6,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding RotateRootCommand}" CommandParameter="Z"
+                        Visibility="{Binding QuickBar[RotateZ].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="選取的檔案繞 Z 軸 +90°">↻Z</Button>
                 <ToggleButton Style="{StaticResource ModeButton}"
                               ToolTip="拖曳模式：左鍵按住零件沿螢幕平面拖動，放開定位（深度方向先轉視角再拖）"
+                              Visibility="{Binding QuickBar[Drag].IsChecked, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding CurrentMode, Converter={StaticResource ModeConv}, ConverterParameter=Drag}">🖐 拖曳</ToggleButton>
-                <ToggleButton IsChecked="{Binding GizmoEnabled}" Padding="8,4" FontSize="13"
+                <ToggleButton Style="{StaticResource ModeButton}" IsChecked="{Binding GizmoEnabled}"
+                              Visibility="{Binding QuickBar[Gizmo].IsChecked, Converter={StaticResource BoolToVis}}"
                               ToolTip="三軸操作器：對樹面板選取的檔案顯示 XYZ 箭頭（沿軸移動）與旋轉環（繞軸轉任意角度），每次放開即定位">⊹ 操作器</ToggleButton>
-                <Button Command="{Binding CheckInterferenceCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding CheckInterferenceCommand}"
+                        Visibility="{Binding QuickBar[Interference].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="干涉檢查：2 個以上可見檔案兩兩檢查是否相交（match 判定）；無相交時回報最小間隙">🧩 干涉</Button>
-                <Separator />
-                <Button Command="{Binding ClearMeasurementsCommand}" Padding="8,4" FontSize="13"
+                <ToggleButton Style="{StaticResource ModeButton}" IsChecked="{Binding SectionEnabled}"
+                              Visibility="{Binding QuickBar[Section].IsChecked, Converter={StaticResource BoolToVis}}"
+                              ToolTip="開啟/關閉剖面檢視（開啟後下方出現參數列）">✂ 剖面</ToggleButton>
+                <Button Style="{StaticResource QuickButton}" Command="{Binding ClearMeasurementsCommand}"
+                        Visibility="{Binding QuickBar[Clear].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="清除全部量測與標記（Esc = 取消進行中量測/退出模式）">🧹 清除</Button>
-                <Separator />
-                <ToggleButton IsChecked="{Binding UseInch}" Padding="8,4" FontSize="13"
+                <ToggleButton Style="{StaticResource ModeButton}" IsChecked="{Binding UseInch}"
+                              Visibility="{Binding QuickBar[Unit].IsChecked, Converter={StaticResource BoolToVis}}"
                               ToolTip="切換顯示單位 mm ⇄ inch（既有量測即時換算）">mm ⇄ in</ToggleButton>
-                <Separator />
-                <Button Command="{Binding ExportCsvCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding ExportCsvCommand}"
+                        Visibility="{Binding QuickBar[ExportCsv].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="量測結果匯出 CSV">💾 CSV</Button>
-                <Button Command="{Binding SaveScreenshotCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding SaveScreenshotCommand}"
+                        Visibility="{Binding QuickBar[Screenshot].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="3D 視圖截圖存 PNG（2x 解析度）">📷 截圖</Button>
-                <Button Command="{Binding ExportStepFileCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding ExportStepFileCommand}"
+                        Visibility="{Binding QuickBar[ExportStep].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="把可見檔案（目前對齊位置）匯出成新 STEP 檔 — 對齊插合結果可交接 CAD；不動原始檔">📤 STEP</Button>
-                <Button Command="{Binding ExportStlFileCommand}" Padding="8,4" FontSize="13"
+                <Button Style="{StaticResource QuickButton}" Command="{Binding ExportStlFileCommand}"
+                        Visibility="{Binding QuickBar[ExportStl].IsChecked, Converter={StaticResource BoolToVis}}"
                         ToolTip="把可見檔案（目前位置）匯出成 STL 網格檔 — 先設定範圍/格式/單位/精度，確認再匯出">📐 STL</Button>
             </ToolBar>
+        </ToolBarTray>
+
+        <!-- ─── 剖面參數列（只在剖面開啟時出現）─── -->
+        <ToolBarTray DockPanel.Dock="Top"
+                     Visibility="{Binding SectionEnabled, Converter={StaticResource BoolToVis}}">
             <ToolBar>
-                <ToggleButton IsChecked="{Binding SectionEnabled}" Padding="8,4" FontSize="13"
-                              ToolTip="開啟/關閉剖面檢視">✂ 剖面</ToggleButton>
+                <TextBlock Text="✂ 剖面：" VerticalAlignment="Center" Margin="4,0,2,0" />
                 <ComboBox SelectedIndex="{Binding SectionAxisIndex}" Width="60" Margin="4,0"
-                          VerticalAlignment="Center" ToolTip="剖切軸向（3點 = 在模型上點 3 點定義任意平面）"
-                          IsEnabled="{Binding SectionEnabled}">
+                          VerticalAlignment="Center" ToolTip="剖切軸向（3點 = 在模型上點 3 點定義任意平面）">
                     <ComboBoxItem>X</ComboBoxItem>
                     <ComboBoxItem>Y</ComboBoxItem>
                     <ComboBoxItem>Z</ComboBoxItem>
                     <ComboBoxItem>3點</ComboBoxItem>
                 </ComboBox>
                 <Slider Value="{Binding SectionPosition}" Minimum="0" Maximum="100" Width="180"
-                        VerticalAlignment="Center" Margin="4,0" ToolTip="剖面位置（沿法向 %）"
-                        IsEnabled="{Binding SectionEnabled}" />
+                        VerticalAlignment="Center" Margin="4,0" ToolTip="剖面位置（沿法向 %）" />
                 <TextBox Text="{Binding SectionPosition, StringFormat={}{0:F0}}" Width="34"
-                         VerticalAlignment="Center" ToolTip="剖面位置 %（0–100，可直接輸入，離開欄位生效）"
-                         IsEnabled="{Binding SectionEnabled}" />
+                         VerticalAlignment="Center" ToolTip="剖面位置 %（0–100，可直接輸入，離開欄位生效）" />
                 <TextBlock Text="%" VerticalAlignment="Center" Margin="1,0,0,0" />
                 <CheckBox IsChecked="{Binding SectionFlip}" Content="反向" VerticalAlignment="Center"
-                          Margin="4,0" ToolTip="切換保留側" IsEnabled="{Binding SectionEnabled}" />
+                          Margin="4,0" ToolTip="切換保留側" />
+                <Button Style="{StaticResource QuickButton}" Command="{Binding CloseSectionCommand}"
+                        ToolTip="關閉剖面檢視">✕ 關閉</Button>
             </ToolBar>
         </ToolBarTray>
 

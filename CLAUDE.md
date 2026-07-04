@@ -47,6 +47,10 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   （量孔對孔 pitch 靠這個）。不要把圓心吸附拿掉或改成永遠優先頂點
 - 鍵盤快速鍵在 `MainWindow.Window_PreviewKeyDown`：**焦點在 TextBoxBase/ComboBox 時直接 return**
   （樹搜尋框、剖面數值框要能打字），新增輸入控件不用再各自處理
+- UI 三層（v0.7.0）：**選單列**（全部功能，分類下拉）+ **快速列**（`QuickBarViewModel` 註冊表，
+  使用者勾選常用按鈕，XAML 索引子綁定 `QuickBar[Key].IsChecked` 控 Visibility，按鈕本體維持靜態綁定）+
+  **剖面參數列**（只在 SectionEnabled 顯示）。新增功能要三處都接：選單分類、快速列註冊表
+  （含預設值）+ 對應 XAML 按鈕；勾選清單存 settings.json `QuickBarKeys`（null = 預設）
 - 使用者設定 `SettingsService`（%LOCALAPPDATA%\STPViewer\settings.json）：視窗（MainWindow 管）+
   單位/MRU（VM `LoadSettings`/`SaveSettingsInto`）；壞檔回預設、儲存失敗靜默
 - 匯出 STEP 走 `CADability.ExportStep.WriteToFile(file, Project.CreateSimpleProject()+Model.Add)`；

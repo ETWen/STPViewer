@@ -86,6 +86,9 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<ModelNodeViewModel> Roots { get; } = new();
     public ObservableCollection<MeasurementResult> Measurements { get; } = new();
 
+    /// <summary>快速工具列自訂（選單列有全部功能，快速列只放勾選的常用按鈕）</summary>
+    public QuickBarViewModel QuickBar { get; } = new();
+
     // ─── 使用者設定（視窗由 MainWindow 處理；VM 管單位 + MRU）─────
 
     public void LoadSettings(AppSettings s)
@@ -94,12 +97,14 @@ public partial class MainViewModel : ObservableObject
         RecentFiles.Clear();
         foreach (string f in s.RecentFiles.Where(File.Exists).Take(SettingsService.MaxRecentFiles))
             RecentFiles.Add(f);
+        QuickBar.Load(s.QuickBarKeys);
     }
 
     public void SaveSettingsInto(AppSettings s)
     {
         s.UseInch = UseInch;
         s.RecentFiles = RecentFiles.ToList();
+        s.QuickBarKeys = QuickBar.ToKeys();
     }
 
     private void TouchRecent(string path)

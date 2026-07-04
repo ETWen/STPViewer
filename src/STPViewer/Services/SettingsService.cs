@@ -15,6 +15,9 @@ public class AppSettings
     public bool WindowMaximized { get; set; }
     public bool UseInch { get; set; }
     public List<string> RecentFiles { get; set; } = new();
+
+    /// <summary>快速工具列顯示的按鈕 key 清單；null = 用預設（QuickBarViewModel.Registry）</summary>
+    public List<string>? QuickBarKeys { get; set; }
 }
 
 /// <summary>設定讀寫：壞檔/缺檔一律回預設值，儲存失敗靜默（設定不值得讓程式閃退）</summary>

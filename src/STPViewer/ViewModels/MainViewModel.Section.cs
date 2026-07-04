@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HelixToolkit.Wpf;
 using STPViewer.Models;
 using STPViewer.Services;
@@ -37,6 +38,10 @@ public partial class MainViewModel
 
     [ObservableProperty]
     private bool sectionFlip;
+
+    /// <summary>剖面參數列的「✕ 關閉」按鈕（參數列只在剖面開啟時顯示）</summary>
+    [RelayCommand]
+    private void CloseSection() => SectionEnabled = false;
 
     // ── 3點自訂剖切平面（SectionAxisIndex == 3，v0.5.0）──
     private const int CustomAxisIndex = 3;
