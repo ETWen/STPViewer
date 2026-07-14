@@ -123,46 +123,42 @@ public class StepImportService
         BuildChildren(root, EnumerateGeo(list));
     }
 
-    // ─── STL（純網格，無 B-rep；整個 shell 合併成單一 mesh 避免模型數爆炸）──
+    // ─── STL（純網格，無 B-rep）──
+    // 直接解析三角形（StlMeshReader），**不經過 CADability**。CADability 的 ImportSTL 會為每個
+    // 三角形建一個 B-rep Face（含 Edge/Vertex 拓樸），百萬三角形需數十分鐘且吃光記憶體
+    // （實測 100k 三角形：CADability ~41 s，直接解析 ~11 ms）。STL 本就無 B-rep，讀三角形即可。
+    // ⚠️ 因此 STL leaf 沒有 SourceGeos（CADability B-rep）→ 不進 STEP 匯出（本就非 STEP B-rep 幾何）；
+    //    剛體變換仍走網格層（TransformRoot 的 SourceGeos 迴圈空轉、mesh 照樣變換），量測走網格近似不受影響。
 
     private void ImportStlFile(string path, ImportedNode root)
     {
-        Shell[] shells = new ImportSTL().Read(path)
-            ?? throw new InvalidDataException("無法解析 STL 檔");
-        int i = 1;
-        foreach (Shell sh in shells)
-        {
-            var positions = new Point3DCollection();
-            var indices = new Int32Collection();
-            double precision = PrecisionFor(SafeBounds(() => sh.GetBoundingCube()));
-            foreach (Face f in sh.Faces)
-            {
-                GeoPoint[] pts; int[] ind;
-                try { f.GetTriangulation(precision, out pts, out _, out ind, out _); }
-                catch { continue; }
-                if (pts is null || ind is null) continue;
-                int offset = positions.Count;
-                foreach (GeoPoint p in pts) positions.Add(new Point3D(p.x, p.y, p.z));
-                foreach (int k in ind) indices.Add(offset + k);
-            }
-            if (positions.Count == 0) continue;
+        Progress?.Invoke("解析 STL（直接讀三角形）…");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        List<StlMeshReader.MeshGroup> groups = StlMeshReader.Read(path);
+        if (groups.Count == 0)
+            throw new InvalidDataException("STL 檔內沒有三角形");
 
-            var mesh = new MeshGeometry3D { Positions = positions, TriangleIndices = indices };
+        foreach (StlMeshReader.MeshGroup g in groups)
+        {
+            if (g.Positions.Count == 0) continue;
+            g.Positions.Freeze();
+            g.Indices.Freeze();
+            var mesh = new MeshGeometry3D { Positions = g.Positions, TriangleIndices = g.Indices };
             mesh.Freeze();
+            int tris = g.Indices.Count / 3;
             var leaf = new ImportedNode
             {
-                Name = shells.Length == 1 ? "網格" : $"網格 {i}",
+                Name = g.Name,
                 HasBrep = false,
                 SolidCount = 1,
-                FaceCount = sh.Faces.Length,
-                TriangleCount = indices.Count / 3,
+                FaceCount = tris,      // STL 無 B-rep 面 → 以三角形數代表
+                TriangleCount = tris,
                 Bounds = BoundsOfMesh(mesh),
             };
-            leaf.SourceGeos.Add(sh);
             leaf.Faces.Add(new ImportedFace(null, mesh));
             root.Children.Add(leaf);
-            i++;
         }
+        Progress?.Invoke($"STL 解析 {sw.ElapsedMilliseconds:N0} ms（{root.Children.Count} 個網格）");
     }
 
     // ─── DXF（多為線架構；Solid/Face 走同一套，曲線取樣成線段）──

@@ -23,6 +23,12 @@ if (args[0] == "--make-dxf")
     return 0;
 }
 
+if (args[0] == "--make-stl")
+{
+    SmokeTest.MakeStl.Run(args[1], args.Length > 2 ? int.Parse(args[2]) : 1_500_000);
+    return 0;
+}
+
 if (args[0] == "--clip-test")
     return SmokeTest.ClipTest.Run() == 0 ? 0 : 2;
 

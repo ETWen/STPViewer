@@ -28,6 +28,12 @@ public partial class AboutDialog : Window
     // ── 版本紀錄（新版加最上面；口吻：一般使用者看得懂，講「你會感覺到什麼」而非實作細節）──
     private static readonly ChangelogEntry[] Changelog =
     {
+        new("0.7.1", new DateOnly(2026, 7, 12), "大型 STL 秒開",
+        new[]
+        {
+            "• 開啟大型 STL 網格檔（數十 MB、上百萬三角形）現在幾乎瞬間完成，不用再等好幾分鐘。",
+            "• 例如一個 75 MB、150 萬個三角形的 STL，以前要等到天荒地老，現在不到 1 秒就顯示出來。",
+        }),
         new("0.7.0", new DateOnly(2026, 7, 4), "介面大整理 — 選單列＋可自訂快速列",
         new[]
         {

@@ -119,13 +119,21 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   `_edgesSuspended` 為真時 `RefreshRootEdges` 不把線掛回。轉動/縮放/平移時不付邊線重建成本。
   **只訂 `Camera.Changed` 不夠**：`Attach` 在建構式呼叫，相機實例若被 Helix 換掉訂閱會孤兒化 → 暫停永不觸發；故加訂控制項層級事件保底（重複觸發 `OnCameraMoved` 無害，有 guard）
 - CADability `ImportStep` 對少數 AP242 檔案支援不完整；匯入失敗要 catch 顯示訊息，不可閃退
+- ⚡ **STL 直接解析（`StlMeshReader`，v0.7.1），不經過 CADability `ImportSTL`**。CADability 會為 STL 每個三角形
+  建一個 B-rep Face（含 Edge/Vertex 拓樸）→ 百萬三角形要數十分鐘且吃光記憶體（實測 100k 三角形：CADability ~41 s
+  vs 直接解析 ~11 ms；75 MB/150 萬三角形整條匯入管線 ~0.77 s）。binary/ASCII 皆自解；binary 判定用
+  **檔案大小 == 84 + 50×count**（header 常也以 "solid" 開頭，不能只看字串）。頂點不焊接（STL 原生就無共用頂點）。
+  **後果**：STL leaf **沒有 `SourceGeos`（CADability B-rep）** → (1) 不進 STEP 匯出（STL 本就非 B-rep 幾何，符合原設計意圖；
+  v0.7.0 以前會把 STL shell 當 Shell 混進 STEP，現移除）；(2) 剛體變換照常 — `TransformRoot` 的 SourceGeos 迴圈空轉、
+  網格層照樣變換；(3) 量測走網格近似不受影響。**不要為了「STL 也要進 STEP」而改回 CADability ImportSTL**（會退回龜速）
 - IGES 無 reader；STL 無 B-rep（FaceInfo.BrepFace == null 的分支要保留）
 - 不寫入原始檔（唯讀工具）；WPF 限 Windows，不要嘗試移植 vbox/Linux
 - 干涉檢查需剛好 2 個可見檔案（樹面板勾選）；共面貼合（無穿透）不算干涉、gap≈0 視為配合（match）
 - SmokeTest 工具：`--tree`（裝配樹）、`--clip-test`（剖切數學）、`--interference-test`（干涉相交/分離/貼合）、
   `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）、
   `--export-test <in.stp> <out.stp>`（STEP 匯出往返：寫出→回讀比對實體數）、
-  `--stl-export-test [file.stp]`（STL binary/ASCII 往返 + 退化濾除；給 stp 加測 B-rep 精細重算）
+  `--stl-export-test [file.stp]`（STL binary/ASCII 往返 + 退化濾除；給 stp 加測 B-rep 精細重算）、
+  `--make-stl <out.stl> [triCount]`（產測試用 binary STL，預設 150 萬三角形，量 STL 匯入效能用）
 - **絕不要用 PowerShell regex/Set-Content 改 .cs 檔** — Windows PowerShell 5.1 預設編碼會把 UTF-8 中文弄成亂碼（已踩過，靠反編譯 DLL 救回）。文字取代一律用 Edit 工具
 
 ## For_AI/
