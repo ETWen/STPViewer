@@ -12,10 +12,11 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using STPViewer.Models;
 using STPViewer.Services;
+using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.ViewModels;
 
-// ─── 匯出（量測 CSV / 視圖 PNG 截圖 / STEP / STL）────────────────────
+// CSV, STEP, STL, and screenshot export
 public partial class MainViewModel
 {
     [RelayCommand]
@@ -23,32 +24,32 @@ public partial class MainViewModel
     {
         if (Measurements.Count == 0)
         {
-            StatusText = "沒有量測結果可匯出";
+            SetStatus(() => Get("Runtime.CsvEmpty"));
             return;
         }
         var dlg = new SaveFileDialog
         {
-            Title = "匯出量測結果",
-            Filter = "CSV 檔案 (*.csv)|*.csv",
+            Title = Get("Runtime.CsvTitle"),
+            Filter = Get("Runtime.CsvFilter"),
             FileName = $"measurements_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
         };
         if (dlg.ShowDialog() != true) return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("標籤,類型,明細");
+        sb.AppendLine(Get("Runtime.CsvHeader"));
         foreach (MeasurementResult m in Measurements)
         {
             static string Esc(string s) => $"\"{s.Replace("\"", "\"\"")}\"";
-            sb.AppendLine($"{Esc(m.Title)},{m.Kind},{Esc(m.Detail.Replace("\n", " | "))}");
+            sb.AppendLine($"{Esc(m.Title)},{Esc(Get($"Runtime.Kind{m.Kind}"))},{Esc(m.Detail.Replace("\n", " | "))}");
         }
-        File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); // BOM：Excel 中文不亂碼
-        StatusText = $"已匯出 {Measurements.Count} 筆量測 → {Path.GetFileName(dlg.FileName)}";
+        File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); // BOM for Excel.
+        int count = Measurements.Count;
+        string fileName = Path.GetFileName(dlg.FileName);
+        SetStatus(() => Format("Runtime.CsvExported", count, fileName));
     }
 
     /// <summary>
-    /// 把可見檔案（目前位置，含對齊/旋轉/拖曳結果）匯出成「新的」STEP 檔 —
-    /// 對齊插合後的配合結果可交接給 CAD；不動任何原始檔（唯讀原則不變）。
-    /// 只含 B-rep Solid/Shell（STL 網格、DXF 線架構無法進 STEP B-rep）。
+    /// Exports visible B-rep Solid and Shell objects at their current positions.
     /// </summary>
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private void ExportStepFile()
@@ -60,41 +61,43 @@ public partial class MainViewModel
             .ToList();
         if (geos.Count == 0)
         {
-            StatusText = "沒有可匯出的 B-rep 幾何（STEP 匯出僅含 Solid/Shell；請勾選要匯出的 STEP 檔案）";
+            SetStatus(() => Get("Runtime.StepExportEmpty"));
             return;
         }
 
         var dlg = new SaveFileDialog
         {
-            Title = "匯出目前場景為 STEP（零件在目前對齊位置）",
-            Filter = "STEP 檔案 (*.stp)|*.stp|STEP 檔案 (*.step)|*.step",
+            Title = Get("Runtime.StepExportTitle"),
+            Filter = Get("Runtime.StepExportFilter"),
             FileName = $"assembly_{DateTime.Now:yyyyMMdd_HHmmss}.stp",
         };
         if (dlg.ShowDialog() != true) return;
 
         try
         {
-            // B-rep 已含目前位置（TransformRoot 對 Solid/Shell 整體 Modify）→ 直接寫出
+            // B-rep objects already contain their transformed positions.
             CADability.Project project = CADability.Project.CreateSimpleProject();
             CADability.Model model = project.GetActiveModel();
             foreach (CADability.GeoObject.IGeoObject g in geos) model.Add(g);
             new CADability.ExportStep().WriteToFile(dlg.FileName, project);
-            StatusText = $"已匯出 STEP（{geos.Count} 個實體，目前位置）→ {Path.GetFileName(dlg.FileName)}";
+            int count = geos.Count;
+            string fileName = Path.GetFileName(dlg.FileName);
+            SetStatus(() => Format("Runtime.StepExported", count, fileName));
         }
         catch (Exception ex)
         {
-            StatusText = $"STEP 匯出失敗：{ex.Message}";
+            string error = ex.Message;
+            SetStatus(() => Format("Runtime.StepExportFailed", error));
         }
     }
 
     /// <summary>
-    /// 匯出可見檔案（目前位置）為 STL 網格檔 — 先開參數對話框（範圍/格式/單位/精度 + 三角形數與大小預估）
-    /// 確認後才選路徑寫檔。精細/較粗 = 由 B-rep 重新三角化（背景執行緒）；STL/DXF 來源一律用現有網格。
+    /// Exports visible meshes as STL using the selected format, scale and quality.
     /// </summary>
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private async Task ExportStlFile()
     {
-        // 可匯出 = 可見 leaf 且有網格（DXF 純線架構無網格 → 排除）
+        // Only visible leaves with meshes can be exported.
         var groups = Roots.Where(r => r.IsVisible)
             .Select(r => (Root: r, Leaves: r.Leaves()
                 .Where(l => l.IsVisible && GetMergedMesh(l) is not null).ToList()))
@@ -102,7 +105,7 @@ public partial class MainViewModel
             .ToList();
         if (groups.Count == 0)
         {
-            StatusText = "沒有可匯出的網格（請勾選至少一個含實體網格的檔案）";
+            SetStatus(() => Get("Runtime.StlExportEmpty"));
             return;
         }
 
@@ -110,23 +113,22 @@ public partial class MainViewModel
             .Sum(l => GetMergedMesh(l)!.TriangleIndices.Count / 3L);
         bool hasBrep = groups.SelectMany(g => g.Leaves).Any(l => l.HasBrep && l.SourceGeos.Count > 0);
 
-        // 參數對話框（確認再匯出）
+        // Collect export options.
         var vm = new StlExportViewModel(groups.Count, triangles, hasBrep);
         var dialog = new StlExportDialog(vm) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true || vm.Scale is not double scale) return;
 
         var dlg = new SaveFileDialog
         {
-            Title = vm.PerFile ? "匯出 STL（每個檔案各一個，以此為基底檔名）" : "匯出 STL（合併單一檔）",
-            Filter = "STL 檔案 (*.stl)|*.stl",
+            Title = Get(vm.PerFile ? "Runtime.StlExportPerFileTitle" : "Runtime.StlExportMergedTitle"),
+            Filter = Get("Runtime.StlExportFilter"),
             FileName = vm.PerFile
                 ? $"stl_{DateTime.Now:yyyyMMdd_HHmmss}.stl"
                 : $"assembly_{DateTime.Now:yyyyMMdd_HHmmss}.stl",
         };
         if (dlg.ShowDialog() != true) return;
 
-        // UI 執行緒先快照：GeometryModel3D/Model3DGroup 是 DispatcherObject 不可跨執行緒，
-        // 背景只能碰 frozen MeshGeometry3D 與 CADability B-rep（SourceGeos）
+        // Snapshot WPF geometry on the UI thread before background export.
         var snapshot = groups
             .Select(g => (g.Root.Name, Leaves: g.Leaves
                 .Select(l => (Mesh: GetMergedMesh(l)!, l.HasBrep, l.SourceGeos))
@@ -134,9 +136,8 @@ public partial class MainViewModel
             .ToList();
 
         IsBusy = true;
-        StatusText = vm.Quality == StlMeshQuality.Current
-            ? "匯出 STL 中…"
-            : "重新三角化 + 匯出 STL 中…（大組件需要時間）";
+        SetStatus(() => Get(vm.Quality == StlMeshQuality.Current
+            ? "Runtime.StlExporting" : "Runtime.StlRetriangulating"));
         try
         {
             double factor = StlExportService.PrecisionFactor(vm.Quality);
@@ -164,13 +165,16 @@ public partial class MainViewModel
             });
 
             long total = written.Sum(w => (long)w.Triangles);
-            StatusText = written.Count == 1
-                ? $"已匯出 STL（{total:N0} 三角形）→ {Path.GetFileName(written[0].File)}"
-                : $"已匯出 {written.Count} 個 STL（共 {total:N0} 三角形）→ {Path.GetDirectoryName(dlg.FileName)}";
+            int fileCount = written.Count;
+            string destination = fileCount == 1 ? Path.GetFileName(written[0].File) : Path.GetDirectoryName(dlg.FileName)!;
+            SetStatus(() => fileCount == 1
+                ? Format("Runtime.StlExportedOne", total, destination)
+                : Format("Runtime.StlExportedMany", fileCount, total, destination));
         }
         catch (Exception ex)
         {
-            StatusText = $"STL 匯出失敗：{ex.Message}";
+            string error = ex.Message;
+            SetStatus(() => Format("Runtime.StlExportFailed", error));
         }
         finally
         {
@@ -178,16 +182,14 @@ public partial class MainViewModel
         }
     }
 
-    /// <summary>leaf 的合併網格（frozen、未剖切、目前位置）— STL 匯出的「目前顯示網格」來源</summary>
+    /// <summary>Current merged mesh for an exportable leaf.</summary>
     private static MeshGeometry3D? GetMergedMesh(ModelNodeViewModel leaf) =>
         leaf.MergedContent?.Children.Count > 0
             ? (leaf.MergedContent.Children[0] as GeometryModel3D)?.Geometry as MeshGeometry3D
             : null;
 
     /// <summary>
-    /// 收集要寫進 STL 的網格（背景執行緒；輸入是 UI 快照）：
-    /// 精細且有 B-rep → 重新三角化（循序，CADability 非執行緒安全）；
-    /// 其餘（目前網格 / STL 來源）→ 快照的合併網格（frozen，可安全跨執行緒讀取）。
+    /// Selects frozen current meshes or sequentially retessellates B-rep geometry.
     /// </summary>
     private static List<MeshGeometry3D> CollectMeshes(
         IReadOnlyList<(MeshGeometry3D Mesh, bool HasBrep, List<CADability.GeoObject.IGeoObject> SourceGeos)> leaves,
@@ -200,7 +202,7 @@ public partial class MainViewModel
             {
                 List<MeshGeometry3D> tess = StlExportService.Tessellate(sourceGeos, precisionFactor);
                 if (tess.Count > 0) { meshes.AddRange(tess); continue; }
-                // 重新三角化全數失敗 → 退回現有網格，不讓零件憑空消失
+                // Fall back to the current mesh if retessellation yields nothing.
             }
             meshes.Add(mesh);
         }
@@ -221,13 +223,13 @@ public partial class MainViewModel
         if (_viewport is null || _viewport.ActualWidth < 1) return;
         var dlg = new SaveFileDialog
         {
-            Title = "儲存視圖截圖",
-            Filter = "PNG 圖片 (*.png)|*.png",
+            Title = Get("Runtime.ScreenshotTitle"),
+            Filter = Get("Runtime.ScreenshotFilter"),
             FileName = $"stpviewer_{DateTime.Now:yyyyMMdd_HHmmss}.png",
         };
         if (dlg.ShowDialog() != true) return;
 
-        const double scale = 2.0; // 2x 解析度
+        const double scale = 2.0;
         var rtb = new RenderTargetBitmap(
             (int)(_viewport.ActualWidth * scale), (int)(_viewport.ActualHeight * scale),
             96 * scale, 96 * scale, PixelFormats.Pbgra32);
@@ -236,6 +238,7 @@ public partial class MainViewModel
         encoder.Frames.Add(BitmapFrame.Create(rtb));
         using FileStream fs = File.Create(dlg.FileName);
         encoder.Save(fs);
-        StatusText = $"已儲存截圖 → {Path.GetFileName(dlg.FileName)}";
+        string fileName = Path.GetFileName(dlg.FileName);
+        SetStatus(() => Format("Runtime.ScreenshotSaved", fileName));
     }
 }

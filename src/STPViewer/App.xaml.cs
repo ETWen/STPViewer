@@ -3,12 +3,13 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
+using STPViewer.Services;
 
 namespace STPViewer;
 
 /// <summary>
-/// 全域例外處理：UI 執行緒未攔截例外 → 記 log + 訊息框後盡量存活（不閃退）；
-/// 背景 Task / 非 UI 執行緒例外 → 記 log。log 位於 %LOCALAPPDATA%\STPViewer\error.log。
+/// Log unhandled UI and background exceptions to
+/// %LOCALAPPDATA%\STPViewer\error.log and show a message for UI errors.
 /// </summary>
 public partial class App : Application
 {
@@ -18,28 +19,27 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        LocalizationService.Instance.SetLanguage(SettingsService.Load().Language);
         base.OnStartup(e);
 
-        // UI 執行緒（含 async void 回拋）的未攔截例外：記 log、提示、標記 Handled 讓程式存活。
-        // 若後續狀態已壞使用者可自行重啟；至少量測結果 / 已載模型不會直接蒸發。
+        // Report UI exceptions and keep the window open.
         DispatcherUnhandledException += (_, args) =>
         {
             LogException("DispatcherUnhandledException", args.Exception);
             MessageBox.Show(
-                $"發生未預期的錯誤，操作已中止（程式將嘗試繼續運作）。\n\n{args.Exception.Message}\n\n" +
-                $"詳細記錄：{LogPath}",
-                "STPViewer 錯誤", MessageBoxButton.OK, MessageBoxImage.Warning);
+                LocalizationService.Format("App.UnexpectedError", args.Exception.Message, LogPath),
+                LocalizationService.Get("App.ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
             args.Handled = true;
         };
 
-        // 沒被 await 的背景 Task 例外（finalizer 階段才浮出）：記 log 並標記已觀察，避免行程終止
+        // Log unobserved task exceptions.
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
             LogException("UnobservedTaskException", args.Exception);
             args.SetObserved();
         };
 
-        // 其他非 UI 執行緒的致命例外：無法阻止終止，但至少留下記錄
+        // Log fatal exceptions on non-UI threads.
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             LogException("AppDomainUnhandledException", args.ExceptionObject as Exception);
     }
@@ -55,6 +55,6 @@ public partial class App : Application
             sb.AppendLine(new string('-', 80));
             File.AppendAllText(LogPath, sb.ToString(), Encoding.UTF8);
         }
-        catch { /* logging 本身失敗不能再拋 */ }
+        catch { /* Logging must not throw from an exception handler. */ }
     }
 }

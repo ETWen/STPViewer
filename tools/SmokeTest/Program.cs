@@ -1,4 +1,4 @@
-// 無 UI smoke test：驗證 CAD 檔解析 → 三角化 → 裝配樹 整條匯入管線
+// Headless smoke tests for CAD import, triangulation, and the assembly tree.
 using System.Diagnostics;
 using System.IO;
 using STPViewer.Services;
@@ -7,7 +7,7 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("用法: SmokeTest [--tree] <file.stp|.stl|.dxf> [...]");
+    Console.WriteLine("Usage: SmokeTest [--tree] <file.stp|.stl|.dxf> [...]");
     return 1;
 }
 
@@ -38,6 +38,9 @@ if (args[0] == "--interference-test")
 if (args[0] == "--align-test")
     return SmokeTest.AlignTest.Run() == 0 ? 0 : 2;
 
+if (args[0] == "--localization-test")
+    return SmokeTest.LocalizationTest.Run() == 0 ? 0 : 2;
+
 if (args[0] == "--bbox")
     return SmokeTest.BBoxDump.Run(args[1]);
 
@@ -47,7 +50,7 @@ if (args[0] == "--export-test")
 if (args[0] == "--stl-export-test")
     return SmokeTest.StlExportTest.Run(args.Length > 1 ? args[1] : null) == 0 ? 0 : 2;
 
-var service = new StepImportService { Progress = s => Console.WriteLine($"  [階段] {s}") };
+var service = new StepImportService { Progress = s => Console.WriteLine($"  [stage] {s}") };
 int failed = 0;
 
 foreach (string path in args)
@@ -64,7 +67,7 @@ foreach (string path in args)
         Console.WriteLine($"  Triangles : {r.TriangleCount:N0}");
         Console.WriteLine($"  Bounds    : {r.Bounds.SizeX:F2} x {r.Bounds.SizeY:F2} x {r.Bounds.SizeZ:F2} mm");
         Console.WriteLine($"  Time      : {sw.ElapsedMilliseconds} ms");
-        Console.WriteLine("  --- 裝配樹 ---");
+        Console.WriteLine("  --- assembly tree ---");
         PrintNode(r, 1);
     }
     catch (Exception ex)
@@ -81,6 +84,6 @@ static void PrintNode(ImportedNode n, int indent)
 {
     string seg = n.EdgeSegments is null ? "" : $", edgeSegs={n.EdgeSegments.Count / 2:N0}";
     Console.WriteLine($"{new string(' ', indent * 2)}{n.Name}  " +
-        $"[solids={n.SolidCount}, faces={n.FaceCount}, tris={n.TriangleCount:N0}{seg}{(n.HasBrep ? "" : ", 無B-rep")}]");
+        $"[solids={n.SolidCount}, faces={n.FaceCount}, tris={n.TriangleCount:N0}{seg}{(n.HasBrep ? "" : ", no B-rep")}]");
     foreach (ImportedNode c in n.Children) PrintNode(c, indent + 1);
 }

@@ -8,15 +8,13 @@ using System.Windows.Media.Media3D;
 namespace STPViewer.Services;
 
 /// <summary>
-/// 直接解析 STL 三角網格（binary / ASCII）→ WPF mesh，**不經過 CADability**。
-/// CADability 的 ImportSTL 會為每個三角形建一個 B-rep Face（含 Edge/Vertex 拓樸），
-/// 大檔（百萬三角形）需數十分鐘且吃光記憶體；STL 本就無 B-rep，直接讀三角形即可。
-/// 實測 100k 三角形：CADability 約 41,000 ms，直接解析約 11 ms。
+/// Reads binary and ASCII STL triangles directly into WPF meshes.
 /// </summary>
 public static class StlMeshReader
 {
-    /// <summary>一個 solid 區塊的網格（頂點未焊接：每三角形 3 個獨立頂點，與 STL 原生一致）</summary>
-    public record MeshGroup(string Name, Point3DCollection Positions, Int32Collection Indices);
+    /// <summary>Mesh for one solid section; vertices remain unwelded.</summary>
+    public record MeshGroup(string Name, Point3DCollection Positions, Int32Collection Indices,
+        string? NameKey = null, int NameNumber = 0);
 
     public static List<MeshGroup> Read(string path)
     {
@@ -24,13 +22,12 @@ public static class StlMeshReader
     }
 
     /// <summary>
-    /// binary STL 判定：檔案大小必須剛好等於 84 + 50×count（count = offset 80 的 uint32）。
-    /// 這是最可靠的判別法 — binary 的 80-byte header 常也以 "solid" 開頭，不能只看開頭字串。
+    /// Binary STL has exactly 84 + 50 × triangle count bytes; its header may also start with "solid".
     /// </summary>
     private static bool IsBinary(string path)
     {
         var fi = new FileInfo(path);
-        if (fi.Length < 84) return false; // 太小，當 ASCII 讓後續拋有意義的錯
+        if (fi.Length < 84) return false;
         Span<byte> head = stackalloc byte[84];
         using (FileStream fs = File.OpenRead(path))
         {
@@ -58,8 +55,8 @@ public static class StlMeshReader
         int off = 84, vi = 0;
         for (uint t = 0; t < count; t++)
         {
-            if (off + 50 > bytes.Length) break; // 檔案被截斷：保住已解析的部分
-            off += 12; // 跳過 normal（渲染用不到；WPF 自算法向）
+            if (off + 50 > bytes.Length) break;
+            off += 12; // WPF computes the normal.
             for (int v = 0; v < 3; v++)
             {
                 float x = BitConverter.ToSingle(span[off..]);
@@ -71,12 +68,11 @@ public static class StlMeshReader
             }
             off += 2; // attribute byte count
         }
-        return new List<MeshGroup> { new("網格", positions, indices) };
+        return new List<MeshGroup> { new(LocalizationService.Get("Runtime.MeshName"), positions, indices, "Runtime.MeshName") };
     }
 
     /// <summary>
-    /// ASCII STL：逐行掃 "vertex x y z"，每 3 個湊成一個三角形；"solid &lt;name&gt;" 起新群組。
-    /// ASCII 大檔罕見（同樣三角數約為 binary 的 5 倍體積），故以正確性為主。
+    /// ASCII STL: read vertex triples and start a new group at each solid section.
     /// </summary>
     private static List<MeshGroup> ReadAscii(string path)
     {
@@ -88,7 +84,8 @@ public static class StlMeshReader
         void FlushGroup()
         {
             if (pos is { Count: > 0 } && idx is not null)
-                groups.Add(new MeshGroup(groups.Count == 0 ? "網格" : $"網格 {groups.Count + 1}", pos, idx));
+                groups.Add(new MeshGroup(groups.Count == 0 ? LocalizationService.Get("Runtime.MeshName") : LocalizationService.Format("Runtime.MeshNameNumbered", groups.Count + 1), pos, idx,
+                    groups.Count == 0 ? "Runtime.MeshName" : "Runtime.MeshNameNumbered", groups.Count + 1));
             pos = null; idx = null; vi = 0;
         }
 

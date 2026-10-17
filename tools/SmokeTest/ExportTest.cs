@@ -5,13 +5,13 @@ using System.Linq;
 using CADability;
 using CADability.GeoObject;
 using STPViewer.Services;
-using IOPath = System.IO.Path; // CADability.GeoObject.Path（曲線）撞名
+using IOPath = System.IO.Path; // Avoid the CADability.GeoObject.Path name collision.
 
 namespace SmokeTest;
 
 /// <summary>
-/// STEP 匯出往返驗證（v0.5.0 匯出 STEP 功能的無 UI 驗證）：
-/// 匯入來源 STEP → 走與 MainViewModel.ExportStepFile 相同路徑寫出新檔 → 重新匯入比對實體數。
+/// Headless STEP export round trip: import, export through the same CADability path,
+/// then import the result and compare solid counts.
 /// </summary>
 public static class ExportTest
 {
@@ -20,26 +20,26 @@ public static class ExportTest
         Console.WriteLine($"=== ExportTest: {IOPath.GetFileName(sourcePath)} → {IOPath.GetFileName(outPath)} ===");
         ImportedFileData data = new StepImportService().Import(sourcePath);
         var geos = Collect(data.Root).Where(g => g is Solid or Shell).ToList();
-        Console.WriteLine($"  來源 Solid/Shell 物件 = {geos.Count}（Solids = {data.Root.SolidCount}）");
+        Console.WriteLine($"  Source Solid/Shell objects = {geos.Count} (solids = {data.Root.SolidCount})");
 
         Project project = Project.CreateSimpleProject();
         Model model = project.GetActiveModel();
         foreach (IGeoObject g in geos) model.Add(g);
         new ExportStep().WriteToFile(outPath, project);
         var fi = new FileInfo(outPath);
-        Console.WriteLine($"  已寫出（{fi.Length:N0} bytes）");
+        Console.WriteLine($"  Written ({fi.Length:N0} bytes)");
         if (fi.Length < 100)
         {
-            Console.WriteLine("ExportTest: FAIL（輸出檔近乎空白）");
+            Console.WriteLine("ExportTest: FAIL (output is nearly empty)");
             return 1;
         }
 
         ImportedFileData back = new StepImportService().Import(outPath);
-        Console.WriteLine($"  回讀 Solids = {back.Root.SolidCount}, Faces = {back.Root.FaceCount}");
+        Console.WriteLine($"  Reimported solids = {back.Root.SolidCount}, faces = {back.Root.FaceCount}");
         bool ok = back.Root.SolidCount == data.Root.SolidCount && back.Root.FaceCount > 0;
         Console.WriteLine(ok
-            ? "ExportTest: PASS（實體數一致）"
-            : $"ExportTest: FAIL（來源 Solids {data.Root.SolidCount} ↔ 回讀 {back.Root.SolidCount}）");
+            ? "ExportTest: PASS (solid counts match)"
+            : $"ExportTest: FAIL (source solids {data.Root.SolidCount} vs reimported {back.Root.SolidCount})");
         return ok ? 0 : 1;
     }
 

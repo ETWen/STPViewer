@@ -6,8 +6,7 @@ using System.Windows.Media.Media3D;
 namespace STPViewer.Services;
 
 /// <summary>
-/// 干涉檢查結果：Intersects=true 時 Segments 為干涉交線；
-/// false 時 GapA/GapB 為最近點對（網格近似）。
+/// Interference result: Segments holds intersection lines, or GapA/GapB the approximate closest points.
 /// </summary>
 public record InterferenceResult(
     bool Intersects,
@@ -18,10 +17,8 @@ public record InterferenceResult(
     double GapDistance);
 
 /// <summary>
-/// 兩組三角網格的干涉檢查：
-/// 三角形-三角形相交（區間法，回傳交線段）+ 均勻網格空間加速。
-/// 共面接觸（無穿透）不會被判為干涉（近似限制）。
-/// 設計為在背景執行緒呼叫。
+/// Checks intersections between two triangle mesh sets using a uniform spatial grid.
+/// Coplanar contact without penetration is excluded.
 /// </summary>
 public static class InterferenceService
 {
@@ -63,7 +60,7 @@ public static class InterferenceService
         return new InterferenceResult(false, 0, segments, ga, gb, d);
     }
 
-    // ─── 資料結構 ────────────────────────────────────────────────
+    // Spatial data
 
     private readonly struct Triangle
     {
@@ -100,7 +97,7 @@ public static class InterferenceService
         a.Min.Y <= b.Max.Y && a.Max.Y >= b.Min.Y &&
         a.Min.Z <= b.Max.Z && a.Max.Z >= b.Min.Z;
 
-    /// <summary>均勻網格：cell → 三角形索引</summary>
+    /// <summary>Uniform grid from cells to triangle indices.</summary>
     private sealed class TriGrid
     {
         private readonly Dictionary<(int, int, int), List<int>> _cells = new();
@@ -108,7 +105,7 @@ public static class InterferenceService
 
         public TriGrid(Triangle[] tris)
         {
-            // cell 大小：整體對角線 / 64（夾限避免極端值）
+            // Size cells from the scene diagonal, with bounds for extreme sizes.
             Point3D min = tris[0].Min, max = tris[0].Max;
             foreach (Triangle t in tris)
             {
@@ -146,7 +143,7 @@ public static class InterferenceService
         }
     }
 
-    // ─── 三角形相交（區間法，回傳交線段）────────────────────────
+    // Triangle intersection
 
     private static bool TriTriIntersect(in Triangle ta, in Triangle tb, out Point3D s0, out Point3D s1)
     {
@@ -167,12 +164,12 @@ public static class InterferenceService
         if ((db0 > 0 && db1 > 0 && db2 > 0) || (db0 < 0 && db1 < 0 && db2 < 0)) return false;
 
         Vector3D dir = Vector3D.CrossProduct(n1, n2);
-        if (dir.LengthSquared < 1e-24) return false; // 共面：不視為穿透（近似）
+        if (dir.LengthSquared < 1e-24) return false; // Coplanar contact.
 
         if (!PlaneCrossSegment(ta, da0, da1, da2, out Point3D p0, out Point3D p1)) return false;
         if (!PlaneCrossSegment(tb, db0, db1, db2, out Point3D q0, out Point3D q1)) return false;
 
-        // 投影到交線方向取重疊區間
+        // Project onto the intersection direction and overlap the intervals.
         double tp0 = Vector3D.DotProduct(dir, (Vector3D)p0);
         double tp1 = Vector3D.DotProduct(dir, (Vector3D)p1);
         double tq0 = Vector3D.DotProduct(dir, (Vector3D)q0);
@@ -182,14 +179,14 @@ public static class InterferenceService
 
         double lo = Math.Max(tp0, tq0);
         double hi = Math.Min(tp1, tq1);
-        if (lo >= hi) return false; // 無重疊（或僅點接觸）
+        if (lo >= hi) return false;
 
         s0 = LerpOnSegment(p0, p1, tp0, tp1, lo);
         s1 = LerpOnSegment(p0, p1, tp0, tp1, hi);
         return true;
     }
 
-    /// <summary>三角形與平面（頂點符號 d0..d2 已算好）的交線段（兩個交點）</summary>
+    /// <summary>Finds the triangle-plane intersection segment from signed vertex distances.</summary>
     private static bool PlaneCrossSegment(in Triangle t, double d0, double d1, double d2,
         out Point3D p0, out Point3D p1)
     {
@@ -208,8 +205,8 @@ public static class InterferenceService
         Span<Point3D> pts, ref int n)
     {
         if (n >= 3) return;
-        if (da == 0 && db == 0) return;        // 邊在平面上 → 共面情形，略過
-        if (da == 0) { pts[n++] = a; return; } // 頂點剛好在平面上
+        if (da == 0 && db == 0) return;
+        if (da == 0) { pts[n++] = a; return; }
         if (da * db < 0)
             pts[n++] = a + (b - a) * (da / (da - db));
     }
@@ -221,11 +218,11 @@ public static class InterferenceService
         return p0 + (p1 - p0) * f;
     }
 
-    // ─── 無干涉時的近似最小間隙 ─────────────────────────────────
+    // Approximate gap when meshes do not intersect
 
     private static (Point3D a, Point3D b, double d) ApproxMinDistance(Triangle[] trisA, Triangle[] trisB)
     {
-        // 1) 抽樣頂點對頂點求初值
+        // Sample vertices for an initial closest pair.
         double best = double.MaxValue;
         Point3D pa = default, pb = default;
         int strideA = Math.Max(1, trisA.Length / 2000);
@@ -237,14 +234,13 @@ public static class InterferenceService
                 if (d < best) { best = d; pa = trisA[i].A; pb = trisB[j].A; }
             }
 
-        // 2) 以最佳點為中心，精修：點 → 對方所有三角形（AABB 平方距離快速拒絕 + 平行分段，
-        //    初值來自步驟 1 已相當接近 → 絕大多數三角形被 AABB 直接刷掉）
+        // Refine against opposing triangles, rejecting distant AABBs.
         (pb, best) = ClosestOnTriangles(pa, trisB, pb, best);
         (pa, best) = ClosestOnTriangles(pb, trisA, pa, best);
         return (pa, pb, best);
     }
 
-    /// <summary>點 p 到三角形集的最近點（帶初值；回傳更新後的最近點與距離）</summary>
+    /// <summary>Refines the closest point from an initial distance.</summary>
     private static (Point3D pt, double d) ClosestOnTriangles(Point3D p, Triangle[] tris, Point3D seedPt, double seedD)
     {
         object gate = new();
@@ -256,7 +252,7 @@ public static class InterferenceService
             (i, _, local) =>
             {
                 Triangle t = tris[i];
-                // AABB 平方距離下界 ≥ 目前最佳 → 不可能更近，略過（絕大多數三角形在此被刷掉）
+                // Reject triangles whose AABB cannot improve the current distance.
                 double dx = Math.Max(0, Math.Max(t.Min.X - p.X, p.X - t.Max.X));
                 double dy = Math.Max(0, Math.Max(t.Min.Y - p.Y, p.Y - t.Max.Y));
                 double dz = Math.Max(0, Math.Max(t.Min.Z - p.Z, p.Z - t.Max.Z));
@@ -276,7 +272,7 @@ public static class InterferenceService
         return (bestPt, bestD);
     }
 
-    /// <summary>點到三角形最近點（Ericson, Real-Time Collision Detection）</summary>
+    /// <summary>Closest point on a triangle, following Ericson's construction.</summary>
     internal static Point3D ClosestPointOnTriangle(Point3D p, Point3D a, Point3D b, Point3D c)
     {
         Vector3D ab = b - a, ac = c - a, ap = p - a;
