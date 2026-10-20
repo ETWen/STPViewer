@@ -29,6 +29,13 @@ public partial class AboutDialog : Window
     // ── 版本紀錄（新版加最上面；口吻：一般使用者看得懂，講「你會感覺到什麼」而非實作細節）──
     private static readonly ChangelogEntry[] Changelog =
     {
+        new("0.8.0", new DateOnly(2026, 10, 20), "Ui.About.Release080.Title",
+        new[]
+        {
+            "Ui.About.Release080.Change1",
+            "Ui.About.Release080.Change2",
+            "Ui.About.Release080.Change3",
+        }),
         new("0.7.1", new DateOnly(2026, 7, 12), "Ui.About.Release071.Title",
         new[]
         {
