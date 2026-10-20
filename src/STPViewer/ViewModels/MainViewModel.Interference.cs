@@ -13,7 +13,7 @@ using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.ViewModels;
 
-// Interference checking
+// ─── 干涉檢查 ────────────────────────────────────────────────────────
 public partial class MainViewModel
 {
     [RelayCommand(CanExecute = nameof(IsIdle))]
@@ -35,7 +35,7 @@ public partial class MainViewModel
                 .Select(m => _faceMap[(GeometryModel3D)m].Mesh)
                 .ToList();
 
-        // Snapshot meshes before background calculations.
+        // 網格快照（開跑後零件被改走也不會半途換料；v0.4.0 起運算期間指令已鎖，這裡是雙保險）
         var meshes = visibleRoots.ToDictionary(r => r, MeshesOf);
 
         IsBusy = true;

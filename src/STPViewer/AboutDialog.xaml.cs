@@ -7,8 +7,8 @@ using STPViewer.Services;
 namespace STPViewer;
 
 /// <summary>
-/// The About window shows application information on the left and release history on the right.
-/// Add each new release at the start of Changelog.
+/// 關於視窗：左 = 程式資訊 / 開發者 / 技術棧，右 = 版本紀錄（寫給一般使用者看，非技術 changelog）。
+/// 樣式參考 ETTerms 的 AboutView。發新版時在 Changelog 陣列最上面加一筆。
 /// </summary>
 public partial class AboutDialog : Window
 {
@@ -26,7 +26,7 @@ public partial class AboutDialog : Window
 
     private record ChangelogEntry(string Version, DateOnly Date, string Title, string[] Changes);
 
-    // Release history shown to users, newest first.
+    // ── 版本紀錄（新版加最上面；口吻：一般使用者看得懂，講「你會感覺到什麼」而非實作細節）──
     private static readonly ChangelogEntry[] Changelog =
     {
         new("0.7.1", new DateOnly(2026, 7, 12), "Ui.About.Release071.Title",

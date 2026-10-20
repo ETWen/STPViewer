@@ -5,17 +5,18 @@ using STPViewer.Services;
 namespace STPViewer.ViewModels;
 
 /// <summary>
-/// Options and live size estimate for the STL export dialog.
+/// STL 匯出參數對話框的 ViewModel：範圍 / 格式 / 單位縮放 / 網格精度 + 即時摘要（三角形數、預估大小）。
+/// 對話框按「匯出」後由 MainViewModel.Export 讀取選項執行。
 /// </summary>
 public partial class StlExportViewModel : ObservableObject
 {
-    /// <summary>Number of visible files available for export.</summary>
+    /// <summary>可見（可匯出）檔案數</summary>
     public int FileCount { get; }
 
-    /// <summary>Triangle count of the current display meshes.</summary>
+    /// <summary>目前顯示網格的三角形總數（精細/較粗會重新三角化，實際數量以結果為準）</summary>
     public long TriangleCount { get; }
 
-    /// <summary>Whether B-rep geometry is available for retessellation.</summary>
+    /// <summary>是否有 B-rep 來源（全 STL/DXF 時精度選項無意義 → 停用）</summary>
     public bool HasBrep { get; }
 
     public StlExportViewModel(int fileCount, long triangleCount, bool hasBrep)
@@ -25,17 +26,17 @@ public partial class StlExportViewModel : ObservableObject
         HasBrep = hasBrep;
     }
 
-    /// <summary>0 = merged STL; 1 = one STL per visible file.</summary>
+    /// <summary>0 = 全部可見合併成單一 STL；1 = 每個可見檔案各一個 STL</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Summary))]
     private int scopeIndex;
 
-    /// <summary>0 = binary; 1 = ASCII.</summary>
+    /// <summary>0 = Binary（建議，檔案小）；1 = ASCII（文字可讀，檔案大）</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Summary))]
     private int formatIndex;
 
-    /// <summary>0 = millimeters; 1 = inches; 2 = custom scale.</summary>
+    /// <summary>0 = mm（1:1）；1 = inch（÷25.4）；2 = 自訂縮放</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Summary))]
     [NotifyPropertyChangedFor(nameof(IsCustomScale))]
@@ -47,7 +48,7 @@ public partial class StlExportViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanConfirm))]
     private string customScaleText = "1.0";
 
-    /// <summary>0 = current mesh; 1 = finer B-rep tessellation.</summary>
+    /// <summary>0 = 目前顯示網格；1 = 精細（B-rep 重新三角化）</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Summary))]
     private int qualityIndex;
@@ -58,7 +59,7 @@ public partial class StlExportViewModel : ObservableObject
     public bool PerFile => ScopeIndex == 1;
     public StlMeshQuality Quality => (StlMeshQuality)QualityIndex;
 
-    /// <summary>Coordinate scale, or null for an invalid custom value.</summary>
+    /// <summary>座標縮放；自訂值無效時回 null（擋確認）</summary>
     public double? Scale => UnitIndex switch
     {
         0 => 1.0,

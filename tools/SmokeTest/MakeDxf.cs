@@ -1,4 +1,4 @@
-// Generate a small standard DXF test file with the bundled netDxf library.
+// 測試輔助：用 CADability 內嵌的 netDxf 產生標準 DXF 測試檔
 using netDxf;
 using netDxf.Entities;
 

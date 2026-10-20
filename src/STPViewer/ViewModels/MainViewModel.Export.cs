@@ -16,7 +16,7 @@ using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.ViewModels;
 
-// CSV, STEP, STL, and screenshot export
+// ─── 匯出（量測 CSV / 視圖 PNG 截圖 / STEP / STL）────────────────────
 public partial class MainViewModel
 {
     [RelayCommand]
@@ -42,14 +42,16 @@ public partial class MainViewModel
             static string Esc(string s) => $"\"{s.Replace("\"", "\"\"")}\"";
             sb.AppendLine($"{Esc(m.Title)},{Esc(Get($"Runtime.Kind{m.Kind}"))},{Esc(m.Detail.Replace("\n", " | "))}");
         }
-        File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); // BOM for Excel.
+        File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); // BOM：Excel 中文不亂碼
         int count = Measurements.Count;
         string fileName = Path.GetFileName(dlg.FileName);
         SetStatus(() => Format("Runtime.CsvExported", count, fileName));
     }
 
     /// <summary>
-    /// Exports visible B-rep Solid and Shell objects at their current positions.
+    /// 把可見檔案（目前位置，含對齊/旋轉/拖曳結果）匯出成「新的」STEP 檔 —
+    /// 對齊插合後的配合結果可交接給 CAD；不動任何原始檔（唯讀原則不變）。
+    /// 只含 B-rep Solid/Shell（STL 網格、DXF 線架構無法進 STEP B-rep）。
     /// </summary>
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private void ExportStepFile()
@@ -75,7 +77,7 @@ public partial class MainViewModel
 
         try
         {
-            // B-rep objects already contain their transformed positions.
+            // B-rep 已含目前位置（TransformRoot 對 Solid/Shell 整體 Modify）→ 直接寫出
             CADability.Project project = CADability.Project.CreateSimpleProject();
             CADability.Model model = project.GetActiveModel();
             foreach (CADability.GeoObject.IGeoObject g in geos) model.Add(g);
@@ -92,12 +94,13 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// Exports visible meshes as STL using the selected format, scale and quality.
+    /// 匯出可見檔案（目前位置）為 STL 網格檔 — 先開參數對話框（範圍/格式/單位/精度 + 三角形數與大小預估）
+    /// 確認後才選路徑寫檔。精細/較粗 = 由 B-rep 重新三角化（背景執行緒）；STL/DXF 來源一律用現有網格。
     /// </summary>
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private async Task ExportStlFile()
     {
-        // Only visible leaves with meshes can be exported.
+        // 可匯出 = 可見 leaf 且有網格（DXF 純線架構無網格 → 排除）
         var groups = Roots.Where(r => r.IsVisible)
             .Select(r => (Root: r, Leaves: r.Leaves()
                 .Where(l => l.IsVisible && GetMergedMesh(l) is not null).ToList()))
@@ -113,7 +116,7 @@ public partial class MainViewModel
             .Sum(l => GetMergedMesh(l)!.TriangleIndices.Count / 3L);
         bool hasBrep = groups.SelectMany(g => g.Leaves).Any(l => l.HasBrep && l.SourceGeos.Count > 0);
 
-        // Collect export options.
+        // 參數對話框（確認再匯出）
         var vm = new StlExportViewModel(groups.Count, triangles, hasBrep);
         var dialog = new StlExportDialog(vm) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true || vm.Scale is not double scale) return;
@@ -128,7 +131,8 @@ public partial class MainViewModel
         };
         if (dlg.ShowDialog() != true) return;
 
-        // Snapshot WPF geometry on the UI thread before background export.
+        // UI 執行緒先快照：GeometryModel3D/Model3DGroup 是 DispatcherObject 不可跨執行緒，
+        // 背景只能碰 frozen MeshGeometry3D 與 CADability B-rep（SourceGeos）
         var snapshot = groups
             .Select(g => (g.Root.Name, Leaves: g.Leaves
                 .Select(l => (Mesh: GetMergedMesh(l)!, l.HasBrep, l.SourceGeos))
@@ -182,14 +186,16 @@ public partial class MainViewModel
         }
     }
 
-    /// <summary>Current merged mesh for an exportable leaf.</summary>
+    /// <summary>leaf 的合併網格（frozen、未剖切、目前位置）— STL 匯出的「目前顯示網格」來源</summary>
     private static MeshGeometry3D? GetMergedMesh(ModelNodeViewModel leaf) =>
         leaf.MergedContent?.Children.Count > 0
             ? (leaf.MergedContent.Children[0] as GeometryModel3D)?.Geometry as MeshGeometry3D
             : null;
 
     /// <summary>
-    /// Selects frozen current meshes or sequentially retessellates B-rep geometry.
+    /// 收集要寫進 STL 的網格（背景執行緒；輸入是 UI 快照）：
+    /// 精細且有 B-rep → 重新三角化（循序，CADability 非執行緒安全）；
+    /// 其餘（目前網格 / STL 來源）→ 快照的合併網格（frozen，可安全跨執行緒讀取）。
     /// </summary>
     private static List<MeshGeometry3D> CollectMeshes(
         IReadOnlyList<(MeshGeometry3D Mesh, bool HasBrep, List<CADability.GeoObject.IGeoObject> SourceGeos)> leaves,
@@ -202,7 +208,7 @@ public partial class MainViewModel
             {
                 List<MeshGeometry3D> tess = StlExportService.Tessellate(sourceGeos, precisionFactor);
                 if (tess.Count > 0) { meshes.AddRange(tess); continue; }
-                // Fall back to the current mesh if retessellation yields nothing.
+                // 重新三角化全數失敗 → 退回現有網格，不讓零件憑空消失
             }
             meshes.Add(mesh);
         }
@@ -229,7 +235,7 @@ public partial class MainViewModel
         };
         if (dlg.ShowDialog() != true) return;
 
-        const double scale = 2.0;
+        const double scale = 2.0; // 2x 解析度
         var rtb = new RenderTargetBitmap(
             (int)(_viewport.ActualWidth * scale), (int)(_viewport.ActualHeight * scale),
             96 * scale, 96 * scale, PixelFormats.Pbgra32);

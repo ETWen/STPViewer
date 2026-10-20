@@ -1,4 +1,4 @@
-// Interference checks for intersecting, separated, and touching meshes.
+// 干涉檢查數學驗證：相交 / 分離 / 貼合三種情境
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using STPViewer.Services;
@@ -11,14 +11,14 @@ internal static class InterferenceTest
     {
         int failures = 0;
 
-        // Two tetrahedra overlap when B is offset by 5 along X.
+        // 兩個互穿的四面體（B 比 A 平移 +5，邊長 10 → 必相交）
         MeshGeometry3D a = Tetra(new Vector3D(0, 0, 0));
         MeshGeometry3D b = Tetra(new Vector3D(5, 0, 0));
         InterferenceResult r1 = InterferenceService.Check(new[] { a }, new[] { b });
         failures += Check("overlap intersects", r1.Intersects, true);
         failures += Check("overlap has intersection segments", r1.Segments.Count > 0, true);
 
-        // B at X=30 leaves a gap of about 20.
+        // 分離（B 平移 +30，gap 應 ≈ 30 - 10 = 20）
         MeshGeometry3D c = Tetra(new Vector3D(30, 0, 0));
         InterferenceResult r2 = InterferenceService.Check(new[] { a }, new[] { c });
         failures += Check("separated meshes do not intersect", r2.Intersects, false);
@@ -26,7 +26,7 @@ internal static class InterferenceTest
         Console.WriteLine($"  {(gapOk ? "PASS" : "FAIL")}: separated gap = {r2.GapDistance:F4} (expected ~20)");
         if (!gapOk) failures++;
 
-        // B at X=10 touches a vertex without penetrating A.
+        // 貼合（B 平移 +10，頂點剛好接觸 → 不算穿透、gap ≈ 0）
         MeshGeometry3D d = Tetra(new Vector3D(10, 0, 0));
         InterferenceResult r3 = InterferenceService.Check(new[] { a }, new[] { d });
         failures += Check("touching is not penetration", r3.Intersects, false);
@@ -45,7 +45,7 @@ internal static class InterferenceTest
         return ok ? 0 : 1;
     }
 
-    /// <summary>A tetrahedron with side length 10, translated by offset.</summary>
+    /// <summary>邊長 10 的四面體，offset 平移</summary>
     private static MeshGeometry3D Tetra(Vector3D offset)
     {
         Point3D P(double x, double y, double z) => new Point3D(x, y, z) + offset;

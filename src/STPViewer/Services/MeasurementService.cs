@@ -10,13 +10,13 @@ using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.Services;
 
-/// <summary>One direction selected for angle measurement.</summary>
+/// <summary>角度量測的單次拾取：邊方向或面法向量</summary>
 public record DirectionPick(Point3D At, Vector3D Direction, string Desc);
 
 /// <summary>
-/// Computes measurements and their viewport overlays.
-/// B-rep provides exact edge lengths and radii; mesh values are approximate.
-/// Text is deferred so unit and language changes update existing results.
+/// 點/距離/邊/面/圓/角度/面距 量測幾何計算 + 視圖 overlay 產生。
+/// 邊長、圓半徑以 B-rep 精確值為準；面積與面距用三角網格近似。
+/// 所有文字以 Func&lt;UnitSystem,string&gt; 延後產生，支援 mm/inch 即時切換。
 /// </summary>
 public class MeasurementService
 {
@@ -30,11 +30,13 @@ public class MeasurementService
     private static GeoPoint ToGeo(Point3D p) => new(p.X, p.Y, p.Z);
     private static Point3D ToP3(GeoPoint p) => new(p.x, p.y, p.z);
 
-    // Picking
+    // ─── 拾取輔助 ────────────────────────────────────────────────
 
     /// <summary>
-    /// Snaps to the nearest vertex or circular edge within tolerance.
-    /// A circular edge snaps to its center for hole pitch measurements.
+    /// 命中點吸附：點到圓形邊附近（容差內）→ 吸附**圓心**（量兩孔 pitch 的關鍵，v0.5.0）；
+    /// 否則吸附最近的 B-rep 頂點（容差內）；都沒有 → 回傳原始表面點。
+    /// 圓心與頂點都在容差內時，比「命中點到圓形邊」與「命中點到頂點」誰近（圓弧端點常與圓重疊，
+    /// 點在圓邊上時圓心優先勝出才符合直覺）。
     /// </summary>
     public Point3D Snap(FaceInfo fi, Point3D hit, double tolerance)
     {
@@ -52,7 +54,7 @@ public class MeasurementService
         }
         catch { }
 
-        // Compare distance to the circle edge before selecting its center.
+        // 圓形邊：以「命中點到邊曲線」的距離參與比較，勝出時吸附到圓心
         try
         {
             foreach (Edge e in fi.BrepFace.AllEdges)
@@ -71,13 +73,14 @@ public class MeasurementService
     }
 
     /// <summary>
-    /// Uses a nearby straight edge for direction, otherwise a face normal.
+    /// 角度量測拾取：命中點附近有直線邊（容差內）→ 邊方向；
+    /// 否則取面法向量（B-rep 精確；無 B-rep 時用網格法向量）。
     /// </summary>
     public DirectionPick PickDirection(FaceInfo fi, Point3D hit, Vector3D meshNormal, double tolerance)
     {
         if (fi.BrepFace is not null)
         {
-            // Prefer a nearby straight edge.
+            // 1) 近距離直線邊優先
             try
             {
                 foreach (Edge e in fi.BrepFace.AllEdges)
@@ -95,7 +98,7 @@ public class MeasurementService
             }
             catch { }
 
-            // Use the B-rep face normal when available.
+            // 2) 面法向量（精確）
             try
             {
                 GeoPoint2D uv = fi.BrepFace.Surface.PositionOf(ToGeo(hit));
@@ -110,7 +113,7 @@ public class MeasurementService
         return new DirectionPick(hit, mn, "Runtime.DirectionMeshFace");
     }
 
-    // Point and distance
+    // ─── 點 / 距離 ───────────────────────────────────────────────
 
     public MeasurementResult MeasurePoint(Point3D p, string label, double markerR)
     {
@@ -146,9 +149,9 @@ public class MeasurementService
         return r;
     }
 
-    // Edge and circle
+    // ─── 邊 / 圓 ─────────────────────────────────────────────────
 
-    /// <summary>Measures the nearest edge, or the nearest circular edge when circlesOnly is true.</summary>
+    /// <summary>量測命中面上最近的邊。circlesOnly=true 時只找圓形邊。找不到回傳 null。</summary>
     public MeasurementResult? MeasureEdge(FaceInfo fi, Point3D hit, string label, double markerR, bool circlesOnly)
     {
         if (fi.BrepFace is null) return null;
@@ -242,11 +245,11 @@ public class MeasurementService
         return r;
     }
 
-    // Face
+    // ─── 面 ──────────────────────────────────────────────────────
 
     public MeasurementResult MeasureFace(FaceInfo fi, Point3D hit, string label, double markerR)
     {
-        // Area is estimated from the triangle mesh.
+        // 面積：三角網格加總（近似值，三角化精度內）
         double area = MeshArea(fi.Mesh);
         int triCount = fi.Mesh.TriangleIndices.Count / 3;
         Func<UnitSystem, string> surfaceDesc = fi.BrepFace is not null
@@ -260,7 +263,7 @@ public class MeasurementService
             DetailFor = u => Format("Runtime.FaceDetail", Units.A(area, u), surfaceDesc(u), triCount),
         };
 
-        // Highlight the outer edges and add a label.
+        // overlay：外輪廓 highlight + 標籤
         if (fi.BrepFace is not null)
         {
             try
@@ -322,7 +325,7 @@ public class MeasurementService
         var other => other,
     };
 
-    // Angle
+    // ─── 角度（兩面 / 兩邊夾角）─────────────────────────────────
 
     public MeasurementResult MeasureAngle(DirectionPick a, DirectionPick b, string label, double markerR, double arrowLen)
     {
@@ -357,7 +360,7 @@ public class MeasurementService
         Thickness = 2,
     };
 
-    // Face distance
+    // ─── 面到面最短距離（網格近似）──────────────────────────────
 
     public MeasurementResult MeasureFaceDistance(FaceInfo a, FaceInfo b, string label, double markerR)
     {
@@ -381,7 +384,7 @@ public class MeasurementService
         return r;
     }
 
-    /// <summary>Approximates the closest points by probing vertices against triangles in both directions.</summary>
+    /// <summary>兩網格最近點對：頂點→三角形雙向（頂點過多時抽樣，結果為近似值）</summary>
     private static (Point3D a, Point3D b) MeshMinDistance(MeshGeometry3D ma, MeshGeometry3D mb)
     {
         double best = double.MaxValue;
@@ -414,18 +417,19 @@ public class MeasurementService
         return (pa, pb);
     }
 
-    // Volume and centroid
+    // ─── 體積 / 質心（封閉網格 signed volume）────────────────────
 
     /// <summary>
-    /// Computes signed volume and centroid from origin-based tetrahedra.
-    /// The result is reliable only for closed meshes.
+    /// 網格體積與質心：各三角形與原點構成的四面體有向體積加總（divergence theorem）。
+    /// 只對「封閉」網格有意義（開放殼會得到不可靠的值 → IsClosedReliable=false 供呼叫端提示）。
+    /// 多個 mesh（多實體）直接加總。
     /// </summary>
     public static (double VolumeMm3, Point3D Centroid, bool Reliable) MeshVolume(
         System.Collections.Generic.IEnumerable<MeshGeometry3D> meshes)
     {
-        double vol6 = 0;
-        double absVol6 = 0;
-        double cx = 0, cy = 0, cz = 0;
+        double vol6 = 0;                       // Σ 6×有向體積
+        double absVol6 = 0;                    // Σ |6×有向體積|（封閉性 sanity check 用）
+        double cx = 0, cy = 0, cz = 0;         // Σ 四面體質心 × 6×有向體積
         foreach (MeshGeometry3D mesh in meshes)
         {
             Point3DCollection pos = mesh.Positions;
@@ -439,14 +443,14 @@ public class MeasurementService
                          + a.Z * (b.X * c.Y - b.Y * c.X);
                 vol6 += v;
                 absVol6 += Math.Abs(v);
-                // Tetrahedron centroid = (a + b + c) / 4.
+                // 四面體（a,b,c,原點）質心 = (a+b+c)/4
                 cx += (a.X + b.X + c.X) / 4 * v;
                 cy += (a.Y + b.Y + c.Y) / 4 * v;
                 cz += (a.Z + b.Z + c.Z) / 4 * v;
             }
         }
         double volume = Math.Abs(vol6) / 6;
-        // Large signed cancellation suggests an open mesh or inconsistent normals.
+        // 有向體積相對正負抵銷比例過高 → 可能是開放殼/法向不一致，數值不可靠
         bool reliable = absVol6 > 0 && Math.Abs(vol6) / absVol6 > 0.01 && volume > 1e-9;
         Point3D centroid = Math.Abs(vol6) > 1e-12
             ? new Point3D(cx / vol6, cy / vol6, cz / vol6)
@@ -454,7 +458,7 @@ public class MeasurementService
         return (volume, centroid, reliable);
     }
 
-    // Shares the triangle closest-point calculation with InterferenceService.
+    // 點到三角形最近點：共用 InterferenceService.ClosestPointOnTriangle（v0.4.0 去重複）
 
     // ─── overlay helpers ─────────────────────────────────────────
 

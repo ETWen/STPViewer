@@ -7,23 +7,23 @@ using HelixToolkit.Wpf;
 namespace STPViewer.Models;
 
 /// <summary>
-/// A measurement stored in millimeters. Its title, details, and 3D labels
-/// update when the display unit changes.
+/// 一筆量測結果。內部以 mm 儲存原始值，Title/Detail 依目前單位即時產生；
+/// 切換單位時 3D 標籤（DynamicLabels）也同步改字。
 /// </summary>
 public class MeasurementResult : ObservableObject
 {
     public MeasureMode Kind { get; init; }
 
-    /// <summary>Create the list title for a display unit.</summary>
+    /// <summary>依單位產生標題（清單粗體列）</summary>
     public required Func<UnitSystem, string> TitleFor { get; init; }
 
-    /// <summary>Create the detailed text for a display unit.</summary>
+    /// <summary>依單位產生多行明細</summary>
     public required Func<UnitSystem, string> DetailFor { get; init; }
 
-    /// <summary>View markers removed with this measurement.</summary>
+    /// <summary>視圖中的標記（刪除量測時一併移除）</summary>
     public List<Visual3D> Overlays { get; } = new();
 
-    /// <summary>3D labels whose text changes with the display unit.</summary>
+    /// <summary>單位相關的 3D 文字標籤（切換單位時更新 Text）</summary>
     public List<(BillboardTextVisual3D Label, Func<UnitSystem, string> TextFor)> DynamicLabels { get; } = new();
 
     private UnitSystem _unit = UnitSystem.Millimeter;

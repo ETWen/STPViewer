@@ -6,9 +6,9 @@ Publish/          # publish-winapp output on case-sensitive systems
 *.user
 .vs/
 
-# Local development assets
+# AI 協作素材不入 git
 For_AI/
 
-# CAD samples are stored locally in For_AI/
+# 客戶 CAD 料號檔不入 git（避免外流）；測試模型放 For_AI/
 *.stp
 *.step

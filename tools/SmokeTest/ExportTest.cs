@@ -5,13 +5,13 @@ using System.Linq;
 using CADability;
 using CADability.GeoObject;
 using STPViewer.Services;
-using IOPath = System.IO.Path; // Avoid the CADability.GeoObject.Path name collision.
+using IOPath = System.IO.Path; // CADability.GeoObject.Path（曲線）撞名
 
 namespace SmokeTest;
 
 /// <summary>
-/// Headless STEP export round trip: import, export through the same CADability path,
-/// then import the result and compare solid counts.
+/// STEP 匯出往返驗證（v0.5.0 匯出 STEP 功能的無 UI 驗證）：
+/// 匯入來源 STEP → 走與 MainViewModel.ExportStepFile 相同路徑寫出新檔 → 重新匯入比對實體數。
 /// </summary>
 public static class ExportTest
 {

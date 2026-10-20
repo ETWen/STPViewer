@@ -13,15 +13,16 @@ using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.ViewModels;
 
-// Section clipping
+// ─── 剖面（CPU 網格裁切；v0.4.0 起裁切在背景執行緒平行計算，UI 不凍結）──
 public partial class MainViewModel
 {
     private readonly DispatcherTimer _sectionTimer;
     private RectangleVisual3D? _sectionPlaneVisual;
-    private Point3D _sectionPlanePoint;
+    private Point3D _sectionPlanePoint;   // SectionEnabled 時的剖切平面（合併邊線重建用）
     private Vector3D _sectionNormal;
 
-    // Reapply clipping if parameters change while background work is running.
+    // 背景裁切 guard：進行中又有新變更（拉滑桿/換軸/零件平移）→ 完成後用最新參數重跑一輪。
+    // 不要改回同步呼叫 ClipMesh —— 大檔（64k 面）整場景裁切會凍結 UI 數秒
     private bool _sectionApplying;
     private bool _sectionReapply;
 
@@ -32,20 +33,20 @@ public partial class MainViewModel
     [ObservableProperty]
     private int sectionAxisIndex;
 
-    /// <summary>Section position along the selected axis, from 0 to 100%.</summary>
+    /// <summary>剖面位置（沿軸 0~100%）</summary>
     [ObservableProperty]
     private double sectionPosition = 50;
 
     [ObservableProperty]
     private bool sectionFlip;
 
-    /// <summary>Closes the section parameter bar.</summary>
+    /// <summary>剖面參數列的「✕ 關閉」按鈕（參數列只在剖面開啟時顯示）</summary>
     [RelayCommand]
     private void CloseSection() => SectionEnabled = false;
 
-    // Three-point custom cutting plane
+    // ── 3點自訂剖切平面（SectionAxisIndex == 3，v0.5.0）──
     private const int CustomAxisIndex = 3;
-    private Vector3D? _customNormal;
+    private Vector3D? _customNormal;                                  // null = 尚未定義（等使用者點 3 點）
     private readonly List<Point3D> _sectionPicks = new();
     private readonly List<Visual3D> _sectionPickOverlays = new();
 
@@ -64,7 +65,7 @@ public partial class MainViewModel
         }
         else
         {
-            // Leaving custom mode discards the old plane.
+            // 離開自訂平面 → 丟棄舊平面（再選「3點」即重新定義）
             _customNormal = null;
             ClearSectionPicks();
         }
@@ -73,14 +74,14 @@ public partial class MainViewModel
 
     partial void OnSectionPositionChanged(double value)
     {
-        if (value < 0) { SectionPosition = 0; return; }
+        if (value < 0) { SectionPosition = 0; return; }   // 位置數值輸入框防呆
         if (value > 100) { SectionPosition = 100; return; }
         ScheduleSection();
     }
 
     partial void OnSectionFlipChanged(bool value) => ScheduleSection();
 
-    /// <summary>Handles a custom plane pick; returns true when the click is consumed.</summary>
+    /// <summary>3點剖面定義模式中的點擊（OnViewportClick 轉入）。回傳 true = 已消費此點擊。</summary>
     public bool HandleSectionPlanePick(System.Windows.Point position)
     {
         if (!SectionEnabled || SectionAxisIndex != CustomAxisIndex || _customNormal is not null) return false;
@@ -136,14 +137,14 @@ public partial class MainViewModel
         return true;
     }
 
-    /// <summary>Cancels custom plane picking; returns true if it was active.</summary>
+    /// <summary>取消 3 點平面定義（Esc / 關剖面）。回傳 true = 有取消動作。</summary>
     private bool CancelSectionPickIfActive(bool quiet = false)
     {
         bool picking = SectionEnabled && SectionAxisIndex == CustomAxisIndex && _customNormal is null;
         if (_sectionPicks.Count == 0 && !picking) return false;
         ClearSectionPicks();
         if (SectionAxisIndex == CustomAxisIndex && _customNormal is null)
-            SectionAxisIndex = 0;
+            SectionAxisIndex = 0; // 回 X 軸
         if (!quiet) SetStatus(() => Get("Runtime.SectionCancelled"));
         return true;
     }
@@ -167,7 +168,8 @@ public partial class MainViewModel
 
         if (!SectionEnabled)
         {
-            // Restore original meshes. Background clipping checks SectionEnabled before applying.
+            // 還原原始幾何（換回 fi.Mesh 參照，便宜、同步即可）。
+            // 若背景裁切還在跑，其 await 之後會看到 SectionEnabled=false 而放棄套用
             foreach ((Model3D model, FaceInfo fi) in _faceMap)
                 if (model is GeometryModel3D gm && !ReferenceEquals(gm.Geometry, fi.Mesh))
                     gm.Geometry = fi.Mesh;
@@ -177,7 +179,7 @@ public partial class MainViewModel
                 _viewport.Children.Remove(_sectionPlaneVisual);
                 _sectionPlaneVisual = null;
             }
-            ApplyRenderMode();
+            ApplyRenderMode(); // 剖面關閉 → 瀏覽模式可切回合併網格
             SetStatus(() => Get("Runtime.SectionClosed"));
             return;
         }
@@ -196,7 +198,7 @@ public partial class MainViewModel
                 Vector3D axis;
                 if (SectionAxisIndex == CustomAxisIndex)
                 {
-                    if (_customNormal is null) return;
+                    if (_customNormal is null) return; // 平面尚未定義（等使用者點 3 點）
                     axis = _customNormal.Value;
                 }
                 else
@@ -212,7 +214,8 @@ public partial class MainViewModel
                 Point3D min = bounds.Location;
                 var size = new Vector3D(bounds.SizeX, bounds.SizeY, bounds.SizeZ);
                 Point3D center = min + size / 2;
-                // Interpolate along the projected bounds of the scene AABB.
+                // 平面位置：場景 AABB 8 個角投影到法向的 [dmin, dmax]，滑桿 t 內插
+                //（軸向法向 = 與舊版逐軸計算等價；任意法向也成立）
                 double dmin = double.MaxValue, dmax = double.MinValue;
                 for (int ci = 0; ci < 8; ci++)
                 {
@@ -228,7 +231,9 @@ public partial class MainViewModel
                 Point3D planePoint = center + axis * (dStar - Vector3D.DotProduct((Vector3D)center, axis));
                 Vector3D normal = SectionFlip ? -axis : axis;
 
-                // Clip frozen meshes in the background, then apply on the UI thread.
+                // UI 執行緒快照（原始 mesh 皆已 Freeze，可跨執行緒），背景平行裁切，回 UI 一次換上。
+                // 裁切期間若參數又變 / 零件被平移（TransformRoot 會呼叫 ApplySection）→
+                // _sectionReapply 讓迴圈用最新的 fi.Mesh 與平面重跑，最終狀態必為最新
                 var models = new List<GeometryModel3D>(_faceMap.Count);
                 var sources = new List<MeshGeometry3D>(_faceMap.Count);
                 foreach ((Model3D model, FaceInfo fi) in _faceMap)
@@ -246,16 +251,16 @@ public partial class MainViewModel
                     return result;
                 });
 
-                if (!SectionEnabled) return;
+                if (!SectionEnabled) return; // 裁切期間被關掉 → 還原分支已處理，丟棄結果
 
                 for (int i = 0; i < models.Count; i++)
-                    models[i].Geometry = clipped[i];
+                    models[i].Geometry = clipped[i]; // 已移除檔案的殘留 model 賦值無害（不在視覺樹上）
 
                 _sectionPlanePoint = planePoint;
                 _sectionNormal = normal;
                 foreach (ModelNodeViewModel root in Roots) RefreshRootEdges(root);
 
-                ApplyRenderMode();
+                ApplyRenderMode(); // 剖面開啟 → 改用逐面（裁切後幾何）
                 UpdateSectionPlaneVisual(planePoint, axis, size);
                 int axisIndex = SectionAxisIndex;
                 double position = SectionPosition;
@@ -296,7 +301,7 @@ public partial class MainViewModel
         _viewport!.Children.Add(_sectionPlaneVisual);
     }
 
-    /// <summary>Returns a unit vector perpendicular to n for the custom plane visual.</summary>
+    /// <summary>取任一與 n 垂直的單位向量（自訂平面的指示矩形方向用）</summary>
     private static Vector3D AnyPerpendicular(Vector3D n)
     {
         Vector3D v = Math.Abs(n.Z) < 0.9

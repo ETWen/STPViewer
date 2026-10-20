@@ -6,15 +6,15 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using CADability;
 using CADability.GeoObject;
-using IOPath = System.IO.Path;
+using IOPath = System.IO.Path; // CADability.GeoObject.Path（曲線）撞名
 using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.Services;
 
-/// <summary>A frozen triangle mesh for one B-rep face; BrepFace is null for STL.</summary>
+/// <summary>單一 B-rep Face 的三角網格（mesh 已 Freeze，可跨執行緒）；STL 來源 BrepFace 為 null</summary>
 public record ImportedFace(Face? BrepFace, MeshGeometry3D Mesh);
 
-/// <summary>An imported assembly group or geometry leaf.</summary>
+/// <summary>匯入後的階層節點：group（裝配）或 leaf（零件幾何）</summary>
 public class ImportedNode
 {
     public string Name { get; set; } = "";
@@ -22,15 +22,15 @@ public class ImportedNode
     public int NameNumber { get; set; }
     public List<ImportedNode> Children { get; } = new();
 
-    // Leaf geometry
+    // ── leaf 幾何 ──
     public List<ImportedFace> Faces { get; } = new();
-    public Point3DCollection? EdgeSegments { get; set; }   // Frozen paired endpoints.
-    public bool HasBrep { get; set; } = true;              // False for STL and curves.
+    public Point3DCollection? EdgeSegments { get; set; }   // 輪廓線（成對端點，已 Freeze）
+    public bool HasBrep { get; set; } = true;              // STL / 純曲線 = false
 
-    /// <summary>Source B-rep objects used for whole-part transforms.</summary>
+    /// <summary>來源 B-rep 物件（Solid/Shell/Face/曲線）— 零件平移時整體 Modify 用</summary>
     public List<CADability.GeoObject.IGeoObject> SourceGeos { get; } = new();
 
-    // Group totals are calculated by Aggregate.
+    // ── 統計（group 節點由 Aggregate 彙總）──
     public int SolidCount { get; set; }
     public int FaceCount { get; set; }
     public int TriangleCount { get; set; }
@@ -42,12 +42,12 @@ public class ImportedNode
 public record ImportedFileData(string FilePath, ImportedNode Root);
 
 /// <summary>
-/// Imports STEP, STL and DXF files on a background thread.
-/// Returned WPF Freezables are frozen.
+/// CAD 檔匯入（STEP / STL / DXF）。STEP 以 HierarchyToBlocks 還原裝配樹。
+/// 設計為在背景執行緒呼叫；回傳的 Freezable 全部已 Freeze。
 /// </summary>
 public class StepImportService
 {
-    /// <summary>Import progress for the status bar.</summary>
+    /// <summary>匯入階段回報（耗時分解），UI 可顯示於狀態列；null 則靜默</summary>
     public Action<string>? Progress { get; set; }
     public Action<Func<string>>? ProgressTextFor { get; set; }
 
@@ -57,14 +57,15 @@ public class StepImportService
         ProgressTextFor?.Invoke(textFor);
     }
 
-    private long _triTicks, _edgeTicks; // Accumulated tessellation and edge sampling ticks.
+    private long _triTicks, _edgeTicks; // 三角化 / 邊取樣 累計耗時（TimeSpan ticks，避免逐面 ms 截斷歸零）
     private double TriMs => new TimeSpan(_triTicks).TotalMilliseconds;
     private double EdgeMs => new TimeSpan(_edgeTicks).TotalMilliseconds;
 
-    /// <summary>Geometry work queued per leaf, then run in parallel. Faces within a leaf share edges.</summary>
+    /// <summary>延後的 leaf 幾何工作（三角化+邊取樣）：樹走訪時收集，之後平行執行。
+    /// 平行粒度 = 整個 leaf（同 leaf 的面共用 Edge，不可面級平行）。</summary>
     private readonly List<Action> _leafWork = new();
 
-    /// <summary>Faces to retry sequentially after parallel tessellation.</summary>
+    /// <summary>平行三角化偶發失敗的面（CADability 跨 leaf 仍有少量共享狀態）→ 平行結束後循序重試</summary>
     private readonly System.Collections.Concurrent.ConcurrentBag<(ImportedNode Leaf, HashSet<Edge> EdgeSet, List<(Face F, double Prec)> Failed)> _retry = new();
 
     public ImportedFileData Import(string filePath)
@@ -97,7 +98,7 @@ public class StepImportService
             });
             _leafWork.Clear();
 
-            // Retry failed faces sequentially after the parallel pass.
+            // 平行下偶發失敗的面：競爭已結束，循序重試一輪（FinishLeaf 也延到此時才跑）
             int retried = 0;
             foreach ((ImportedNode leaf, HashSet<Edge> edgeSet, var failed) in _retry)
             {
@@ -136,7 +137,12 @@ public class StepImportService
         BuildChildren(root, EnumerateGeo(list));
     }
 
-    // STL is read directly as mesh geometry without B-rep objects.
+    // ─── STL（純網格，無 B-rep）──
+    // 直接解析三角形（StlMeshReader），**不經過 CADability**。CADability 的 ImportSTL 會為每個
+    // 三角形建一個 B-rep Face（含 Edge/Vertex 拓樸），百萬三角形需數十分鐘且吃光記憶體
+    // （實測 100k 三角形：CADability ~41 s，直接解析 ~11 ms）。STL 本就無 B-rep，讀三角形即可。
+    // ⚠️ 因此 STL leaf 沒有 SourceGeos（CADability B-rep）→ 不進 STEP 匯出（本就非 STEP B-rep 幾何）；
+    //    剛體變換仍走網格層（TransformRoot 的 SourceGeos 迴圈空轉、mesh 照樣變換），量測走網格近似不受影響。
 
     private void ImportStlFile(string path, ImportedNode root)
     {
@@ -161,7 +167,7 @@ public class StepImportService
                 NameNumber = g.NameNumber,
                 HasBrep = false,
                 SolidCount = 1,
-                FaceCount = tris,
+                FaceCount = tris,      // STL 無 B-rep 面 → 以三角形數代表
                 TriangleCount = tris,
                 Bounds = BoundsOfMesh(mesh),
             };
@@ -173,7 +179,7 @@ public class StepImportService
         ReportProgress(() => Format("Runtime.StlParsed", elapsed, meshCount));
     }
 
-    // DXF
+    // ─── DXF（多為線架構；Solid/Face 走同一套，曲線取樣成線段）──
 
     private void ImportDxfFile(string path, ImportedNode root)
     {
@@ -184,7 +190,7 @@ public class StepImportService
         BuildChildren(root, EnumerateGeo(model.AllObjects));
     }
 
-    // Assembly traversal
+    // ─── 階層走訪 ────────────────────────────────────────────────
 
     private static IEnumerable<IGeoObject> EnumerateGeo(System.Collections.IEnumerable list)
     {
@@ -201,7 +207,7 @@ public class StepImportService
     private void BuildChildren(ImportedNode parent, IEnumerable<IGeoObject> objects)
     {
         var looseFaces = new List<Face>();
-        var looseCurves = new List<IGeoObject>();
+        var looseCurves = new List<IGeoObject>(); // 皆為 ICurve
 
         foreach (IGeoObject go in objects)
         {
@@ -245,7 +251,7 @@ public class StepImportService
                 if (failed.Count > 0) _retry.Add((leaf, edgeSet, failed));
                 else FinishLeaf(leaf, edgeSet);
             });
-            parent.Children.Add(leaf);
+            parent.Children.Add(leaf); // 三角化延後，空 leaf 由 Prune 收掉
         }
         if (looseCurves.Count > 0)
         {
@@ -269,7 +275,7 @@ public class StepImportService
 
     private ImportedNode? BlockNode(Block block)
     {
-        // Collapse a block containing one solid into a leaf.
+        // Block 只有單一同名 Solid → 折疊成 leaf（STEP 常見的 product→solid 包裝）
         if (block.NumChildren == 1 && block.Child(0) is Solid s)
         {
             ImportedNode leaf = SolidNode(s);
@@ -290,7 +296,7 @@ public class StepImportService
         BuildChildren(node, ChildrenOf(block));
         if (node.Children.Count == 0) return null;
 
-        // Drop a redundant group when it has one child with the same name.
+        // 單鏈折疊：group 只有一個子節點且名稱相同/空白 → 去掉中間層
         if (node.Children.Count == 1)
         {
             ImportedNode only = node.Children[0];
@@ -354,7 +360,7 @@ public class StepImportService
         return leaf;
     }
 
-    // Geometry processing
+    // ─── 幾何處理 ────────────────────────────────────────────────
 
     private static BoundingCube SafeBounds(Func<BoundingCube> get)
     {
@@ -362,7 +368,7 @@ public class StepImportService
         catch { return new BoundingCube(); }
     }
 
-    /// <summary>Tessellation precision: bounding diagonal × 0.0015, clamped to [0.02, 0.5] mm.</summary>
+    /// <summary>三角化精度依物件大小調整：對角線 × 0.0015，限制在 [0.02, 0.5] mm</summary>
     private static double PrecisionFor(BoundingCube bc)
     {
         double diag;
@@ -372,7 +378,7 @@ public class StepImportService
         return Math.Clamp(diag * 0.0015, 0.02, 0.5);
     }
 
-    /// <returns>False when tessellation fails and the face needs a retry.</returns>
+    /// <returns>false = 三角化失敗（平行下偶發，可循序重試）</returns>
     private bool AddFace(Face face, double precision, ImportedNode leaf, HashSet<Edge> edgeSet)
     {
         GeoPoint[] points; int[] indices;
@@ -383,7 +389,7 @@ public class StepImportService
         }
         catch
         {
-            return false;
+            return false; // 個別面三角化失敗時跳過，不讓整檔失敗
         }
         finally
         {
@@ -411,7 +417,7 @@ public class StepImportService
         return true;
     }
 
-    /// <summary>Completes edge sampling, counts and bounds for one leaf.</summary>
+    /// <summary>leaf 收尾：邊取樣 + 統計 + 邊界</summary>
     private void FinishLeaf(ImportedNode leaf, HashSet<Edge> edgeSet)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -448,7 +454,7 @@ public class StepImportService
         return segments;
     }
 
-    /// <summary>Samples curves into paired line endpoints.</summary>
+    /// <summary>把曲線取樣成線段對（直線 1 段、曲線 12 段）</summary>
     private static void AppendCurveSegments(Point3DCollection segments, ICurve curve)
     {
         int n = curve is Line ? 1 : 12;
@@ -483,7 +489,7 @@ public class StepImportService
             Math.Max(maxX - minX, 1e-6), Math.Max(maxY - minY, 1e-6), Math.Max(maxZ - minZ, 1e-6));
     }
 
-    /// <summary>Removes nodes left empty after tessellation.</summary>
+    /// <summary>移除沒有任何幾何的節點（延後三角化全失敗的 leaf、因此變空的 group）</summary>
     private static void Prune(ImportedNode node)
     {
         for (int i = node.Children.Count - 1; i >= 0; i--)
@@ -495,7 +501,7 @@ public class StepImportService
         }
     }
 
-    /// <summary>Aggregates counts and bounds from children.</summary>
+    /// <summary>group 節點統計彙總（bottom-up）</summary>
     private static void Aggregate(ImportedNode node)
     {
         if (node.IsLeaf) return;

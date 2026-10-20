@@ -8,8 +8,8 @@ using STPViewer.Services;
 namespace STPViewer;
 
 /// <summary>
-/// Log unhandled UI and background exceptions to
-/// %LOCALAPPDATA%\STPViewer\error.log and show a message for UI errors.
+/// 全域例外處理：UI 執行緒未攔截例外 → 記 log + 訊息框後盡量存活（不閃退）；
+/// 背景 Task / 非 UI 執行緒例外 → 記 log。log 位於 %LOCALAPPDATA%\STPViewer\error.log。
 /// </summary>
 public partial class App : Application
 {
@@ -22,7 +22,8 @@ public partial class App : Application
         LocalizationService.Instance.SetLanguage(SettingsService.Load().Language);
         base.OnStartup(e);
 
-        // Report UI exceptions and keep the window open.
+        // UI 執行緒（含 async void 回拋）的未攔截例外：記 log、提示、標記 Handled 讓程式存活。
+        // 若後續狀態已壞使用者可自行重啟；至少量測結果 / 已載模型不會直接蒸發。
         DispatcherUnhandledException += (_, args) =>
         {
             LogException("DispatcherUnhandledException", args.Exception);
@@ -32,14 +33,14 @@ public partial class App : Application
             args.Handled = true;
         };
 
-        // Log unobserved task exceptions.
+        // 沒被 await 的背景 Task 例外（finalizer 階段才浮出）：記 log 並標記已觀察，避免行程終止
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
             LogException("UnobservedTaskException", args.Exception);
             args.SetObserved();
         };
 
-        // Log fatal exceptions on non-UI threads.
+        // 其他非 UI 執行緒的致命例外：無法阻止終止，但至少留下記錄
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             LogException("AppDomainUnhandledException", args.ExceptionObject as Exception);
     }

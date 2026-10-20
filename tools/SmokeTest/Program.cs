@@ -1,4 +1,4 @@
-// Headless smoke tests for CAD import, triangulation, and the assembly tree.
+// 無 UI smoke test：驗證 CAD 檔解析 → 三角化 → 裝配樹 整條匯入管線
 using System.Diagnostics;
 using System.IO;
 using STPViewer.Services;

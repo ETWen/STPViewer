@@ -35,7 +35,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Application, developer, and technology -->
+        <!-- ─── 左：程式 / 開發者 / 技術棧 ─── -->
         <StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,12,0">
             <Border Style="{StaticResource Card}">
                 <StackPanel HorizontalAlignment="Center">
@@ -78,7 +78,7 @@
             </Border>
         </StackPanel>
 
-        <!-- Release history -->
+        <!-- ─── 右：Change log ─── -->
         <Border Grid.Column="1" Grid.Row="0" Background="#FAFBFC" CornerRadius="6" Padding="4">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="{loc:Loc Ui.About.Changelog}" FontWeight="Bold" FontSize="14"

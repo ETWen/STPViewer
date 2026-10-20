@@ -23,33 +23,34 @@ public partial class MainViewModel : ObservableObject
     private readonly StepImportService _importService = new();
     private readonly MeasurementService _measureService = new();
 
-    /// <summary>Maps rendered face models to their B-rep face data for hit testing.</summary>
+    /// <summary>渲染物件 → B-rep Face 反查表（HitTest 用；overlay 不在表內所以自然被忽略）</summary>
     private readonly Dictionary<Model3D, FaceInfo> _faceMap = new();
 
-    /// <summary>Maps merged meshes to leaves for drag hit testing.</summary>
+    /// <summary>合併網格 → leaf 反查表（拖曳模式在瀏覽渲染下 hit-test 用）</summary>
     private readonly Dictionary<Model3D, ModelNodeViewModel> _mergedMap = new();
 
-    /// <summary>Vertex boundaries and faces used to resolve hits on merged meshes.
-    /// The order matches BuildMergedMesh; transforms do not change vertex counts.</summary>
+    /// <summary>合併網格 → (每面頂點起始邊界, 對應 FaceInfo)。命中合併網格時用三角形頂點 index 二分搜尋反查回是哪個面，
+    /// 讓量測模式也能 render 合併網格（62 個 model）而非逐面（數萬個 model）。starts 長度 = faces+1，最後一格為總頂點數。
+    /// 邊界由匯入時依面序串接而成，與 BuildMergedMesh 串接順序一致；平移不改各面頂點數，故邊界永久有效。</summary>
     private readonly Dictionary<Model3D, (int[] Starts, FaceInfo[] Faces)> _mergedFaceRanges = new();
 
     private HelixViewport3D? _viewport;
     private int _paletteIndex;
     private readonly Dictionary<MeasureMode, int> _counters = new();
 
-    // First picks for multi-step measurements.
-    private Point3D? _pendingPoint;
-    private DirectionPick? _pendingDirection;
-    private FaceInfo? _pendingFace;
-    private (ModelNodeViewModel Root, Point3D Point)? _pendingAlign;
-    private readonly List<(ModelNodeViewModel Root, Point3D P)> _align3 = new();
+    // 兩段式量測的第一次拾取暫存
+    private Point3D? _pendingPoint;          // 距離
+    private DirectionPick? _pendingDirection; // 角度
+    private FaceInfo? _pendingFace;           // 面距
+    private (ModelNodeViewModel Root, Point3D Point)? _pendingAlign; // 兩點對齊
+    private readonly List<(ModelNodeViewModel Root, Point3D P)> _align3 = new(); // 三點對齊（前3=來源、後3=目標）
     private readonly List<Visual3D> _pendingOverlays = new();
 
-    /// <summary>Selected tree node used as the target for commands.</summary>
+    /// <summary>樹面板目前選取的節點（MainWindow SelectedItemChanged 轉發；旋轉指令的目標）</summary>
     [ObservableProperty]
     private ModelNodeViewModel? selectedNode;
 
-    // Suspend edge rendering during camera interaction.
+    // 互動中暫停邊線：轉動/縮放/平移時隱藏 LinesVisual3D，停下再顯示 → 大組件流暢
     private readonly DispatcherTimer _interactionTimer;
     private bool _edgesSuspended;
 
@@ -88,7 +89,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool useInch;
 
-    /// <summary>Tree name filter; does not affect viewport visibility.</summary>
+    /// <summary>樹面板名稱過濾字串（只影響樹顯示，不影響 3D 可見性）</summary>
     [ObservableProperty]
     private string? treeFilter;
 
@@ -97,16 +98,16 @@ public partial class MainViewModel : ObservableObject
         foreach (ModelNodeViewModel root in Roots) root.ApplyFilter(value);
     }
 
-    /// <summary>Recently opened files saved in settings.json.</summary>
+    /// <summary>最近開啟檔案（MRU，最多 10 筆；隨 settings.json 保存）</summary>
     public ObservableCollection<string> RecentFiles { get; } = new();
 
     public ObservableCollection<ModelNodeViewModel> Roots { get; } = new();
     public ObservableCollection<MeasurementResult> Measurements { get; } = new();
 
-    /// <summary>Quick bar button selections.</summary>
+    /// <summary>快速工具列自訂（選單列有全部功能，快速列只放勾選的常用按鈕）</summary>
     public QuickBarViewModel QuickBar { get; } = new();
 
-    // User settings
+    // ─── 使用者設定（視窗由 MainWindow 處理；VM 管單位 + MRU）─────
 
     public void LoadSettings(AppSettings s)
     {
@@ -139,18 +140,23 @@ public partial class MainViewModel : ObservableObject
         _sectionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _sectionTimer.Tick += (_, _) => { _sectionTimer.Stop(); ApplySection(); };
 
-        // Restore edges after camera movement stops.
+        // 相機停止移動 180ms 後恢復邊線
         _interactionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
         _interactionTimer.Tick += (_, _) => { _interactionTimer.Stop(); ResumeEdges(); };
     }
 
     private UnitSystem CurrentUnit => UseInch ? UnitSystem.Inch : UnitSystem.Millimeter;
 
-    /// <summary>Attaches the viewport from MainWindow.</summary>
+    /// <summary>由 MainWindow 注入 viewport（桌面工具，不做過度抽象）</summary>
     public void Attach(HelixViewport3D viewport)
     {
         _viewport = viewport;
-        // The viewport event also catches camera instance replacements by HelixToolkit.
+        // 相機一動就暫停邊線/逐面（轉動/縮放/平移皆觸發），停下 180ms 再恢復。
+        // 兩個事件都訂閱，互補保底：
+        //   1) viewport.CameraChanged（控制項層級 routed event）— 相機實例若被 Helix 內部換掉也接得住；
+        //   2) Camera.Changed（Freezable，相機 Position/方向一被改就觸發）— 確保每次移動都收到。
+        // 舊寫法只訂 Camera.Changed 且包在 null 檢查裡，萬一相機實例被換就永久失聯 → 暫停機制全失效。
+        // 重複觸發 OnCameraMoved 無害（idempotent，內部有 _edgesSuspended guard）。
         viewport.CameraChanged += (_, _) => OnCameraMoved();
         if (viewport.Camera is not null)
             viewport.Camera.Changed += (_, _) => OnCameraMoved();
@@ -158,7 +164,7 @@ public partial class MainViewModel : ObservableObject
 
     private void OnCameraMoved()
     {
-        SyncOverlayCamera();
+        SyncOverlayCamera(); // 操作器疊圖層跟著主相機
         if (!_edgesSuspended) { _edgesSuspended = true; SetEdgesActive(false); }
         _interactionTimer.Stop();
         _interactionTimer.Start();
@@ -170,7 +176,7 @@ public partial class MainViewModel : ObservableObject
         SetEdgesActive(true);
     }
 
-    /// <summary>Shows or hides merged root edges without rebuilding points.</summary>
+    /// <summary>只切換 root 合併邊線的 viewport 掛載（不重建 Points）</summary>
     private void SetEdgesActive(bool active)
     {
         if (_viewport is null) return;
@@ -179,10 +185,10 @@ public partial class MainViewModel : ObservableObject
                 SyncVisual(root.EdgeVisual, active && root.EdgeVisual.Points.Count > 0);
     }
 
-    /// <summary>Disables scene-changing commands while background work runs.</summary>
+    /// <summary>IsBusy 時停用會改動幾何/場景的指令（匯入、旋轉、干涉），避免背景運算期間狀態被改走造成結果錯位</summary>
     private bool IsIdle() => !IsBusy;
 
-    // Import
+    // ─── 匯入 ────────────────────────────────────────────────────
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private async Task ImportAsync()
@@ -197,24 +203,25 @@ public partial class MainViewModel : ObservableObject
             await ImportFilesAsync(dlg.FileNames);
     }
 
-    /// <summary>Imports a recently opened file.</summary>
+    /// <summary>MRU 下拉點選（檔案可能已被移走 → ImportFilesAsync 會報匯入失敗）</summary>
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private Task ImportRecentAsync(string path) => ImportFilesAsync(new[] { path });
 
     public async Task ImportFilesAsync(IEnumerable<string> paths)
     {
         if (_viewport is null) return;
-        // Reject overlapping imports because StepImportService has shared state.
+        // 拖放/命令列可繞過指令 CanExecute 直接進來 → 匯入或背景運算期間直接擋掉，
+        // 避免兩批匯入交錯（StepImportService 有共享狀態，非重入安全）
         if (IsBusy) { SetStatus(() => Get("Runtime.ImportBusy")); return; }
         int ok = 0, fail = 0;
-        IsBusy = true;
+        IsBusy = true; // 整批匯入期間維持 busy（v0.4.0：不再逐檔開關，杜絕檔案之間的重入空窗）
         try
         {
             foreach (string path in paths)
             {
                 string name = Path.GetFileNameWithoutExtension(path);
                 SetStatus(() => Format("Runtime.Importing", name));
-                // Marshal progress from the import thread to the UI thread.
+                // 匯入階段回報（從背景執行緒來 → 切回 UI 執行緒）
                 _importService.ProgressTextFor = textFor =>
                     System.Windows.Application.Current?.Dispatcher.BeginInvoke(
                         () => SetStatus(() => Format("Runtime.ImportProgress", name, textFor())));
@@ -257,13 +264,13 @@ public partial class MainViewModel : ObservableObject
 
         ModelNodeViewModel root = BuildNode(data.Root, isRoot: true, data.FilePath, name);
 
-        // Disable edges by default for very large files.
+        // 邊線總量過大 → 整檔預設關閉（cascade；使用者可再開）
         int totalSegments = root.Leaves().Sum(l => (l.OriginalEdgePoints?.Count ?? 0) / 2);
         if (totalSegments > 30_000)
             root.ShowEdges = false;
 
         Roots.Add(root);
-        if (!string.IsNullOrWhiteSpace(TreeFilter)) root.ApplyFilter(TreeFilter);
+        if (!string.IsNullOrWhiteSpace(TreeFilter)) root.ApplyFilter(TreeFilter); // 新檔套用目前過濾
         foreach (ModelNodeViewModel leaf in root.Leaves())
         {
             leaf.VisualStateChanged += _ => SyncLeafVisuals(root);
@@ -271,7 +278,7 @@ public partial class MainViewModel : ObservableObject
                 _viewport!.Children.Add(leaf.BodyVisual);
         }
 
-        // One merged edge visual per file avoids per-leaf rebuilds.
+        // 整檔合併成「一條」LinesVisual3D（轉動時只重建 1 條，避免逐零件 N 條造成卡頓）
         if (root.Leaves().Any(l => l.OriginalEdgePoints is { Count: > 0 }))
         {
             root.EdgeVisual = new LinesVisual3D
@@ -300,7 +307,7 @@ public partial class MainViewModel : ObservableObject
 
         if (n.Faces.Count > 0)
         {
-            // Share material across leaf faces for color changes.
+            // leaf 共用材質（換色時只改 Brush）
             var diffuseBrush = new SolidColorBrush(vm.Color);
             diffuseBrush.Freeze();
             var diffuse = new DiffuseMaterial(diffuseBrush);
@@ -311,7 +318,8 @@ public partial class MainViewModel : ObservableObject
             backMat.Freeze();
             vm.SharedMaterial = diffuse;
 
-            // Keep one model per face for section picking and record merged-mesh face boundaries.
+            // 一個 B-rep Face = 一個 GeometryModel3D，登錄反查表（剖面模式逐面拾取用）。
+            // 同時依面序記錄每面頂點起始邊界 + 對應 FaceInfo，供「命中合併網格反查面」（量測模式拾取用）。
             var group = new Model3DGroup();
             var faceInfos = new FaceInfo[n.Faces.Count];
             var vertStarts = new int[n.Faces.Count + 1];
@@ -330,9 +338,11 @@ public partial class MainViewModel : ObservableObject
             vertStarts[n.Faces.Count] = vacc;
             vm.FacesContent = group;
 
-            // BuildMergedMesh concatenates faces in the same order as vertStarts.
+            // 合併網格：整零件所有面併成 1 個 GeometryModel3D（draw call 從每面 1 個降為每檔 1 個）。
+            // BuildMergedMesh 依 n.Faces 同序串接（baseIdx += positions.Count），與上面 vertStarts 對齊 → 命中頂點 index 可反查回面。
             var mergedModel = new GeometryModel3D(BuildMergedMesh(n.Faces), matGroup);
-            // Closed solids render front faces only; open shells and STL render both sides.
+            // 封閉實體背面不可見 → 不設 BackMaterial（WPF 兩面渲染成本砍半）；開放殼/STL 仍需背面。
+            // 拾取不受材質影響（WPF 3D hit-test 純幾何、不剔背面），故孔內壁仍可命中。
             if (n.SolidCount == 0 || !n.HasBrep)
                 mergedModel.BackMaterial = backMat;
             vm.MergedContent = new Model3DGroup();
@@ -340,14 +350,14 @@ public partial class MainViewModel : ObservableObject
             _mergedMap[mergedModel] = vm;
             _mergedFaceRanges[mergedModel] = (vertStarts, faceInfos);
 
-            // Use merged meshes except in section mode, which needs separate clipped faces.
+            // 非剖面一律顯示合併網格（瀏覽/量測都是，量測靠 _mergedFaceRanges 反查面）；只有剖面才逐面（裁切後幾何）
             vm.BodyVisual = new ModelVisual3D
             {
                 Content = SectionEnabled ? group : vm.MergedContent,
             };
         }
 
-        // Leaves hold edge data; roots hold the merged edge visual.
+        // 邊線端點僅保存於 leaf（資料）；實際 LinesVisual3D 由 root 合併建立（見 BuildRoot）
         if (n.EdgeSegments is { Count: > 0 })
             vm.OriginalEdgePoints = n.EdgeSegments;
 
@@ -366,7 +376,8 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Rebuilds one edge visual from visible leaves, clipping segments in section mode.
+    /// 重建整檔的合併邊線：收集所有「可見且開邊線」的 leaf 端點為單一 Point3DCollection。
+    /// 剖面開啟時即時裁切。一檔只有一條 LinesVisual3D → 轉動視角不再逐零件重建。
     /// </summary>
     private void RefreshRootEdges(ModelNodeViewModel root)
     {
@@ -393,9 +404,9 @@ public partial class MainViewModel : ObservableObject
         else if (!shouldShow && contains) _viewport.Children.Remove(visual);
     }
 
-    // Merged meshes
+    // ─── 合併網格（瀏覽模式降 draw call）────────────────────────
 
-    /// <summary>Concatenates face meshes in the given order.</summary>
+    /// <summary>把多個面網格依序併成單一 MeshGeometry3D（索引位移後串接；順序 = 呼叫端給的面序）</summary>
     private static MeshGeometry3D MergeMeshes(IReadOnlyList<MeshGeometry3D> meshes)
     {
         int nv = 0, nt = 0;
@@ -422,7 +433,7 @@ public partial class MainViewModel : ObservableObject
         return mesh;
     }
 
-    /// <summary>Builds the import mesh in face order for merged hit resolution.</summary>
+    /// <summary>匯入時建合併網格（依 faces 面序串接，與 _mergedFaceRanges 的頂點邊界對齊）</summary>
     private static MeshGeometry3D BuildMergedMesh(IReadOnlyList<ImportedFace> faces)
     {
         var meshes = new List<MeshGeometry3D>(faces.Count);
@@ -430,7 +441,8 @@ public partial class MainViewModel : ObservableObject
         return MergeMeshes(meshes);
     }
 
-    /// <summary>Rebuilds a merged mesh after a transform without changing face vertex boundaries.</summary>
+    /// <summary>重建合併網格（位置變更後，如零件平移）。由 leaf 逐面 fi.Mesh（未剖切原始）依 FacesContent 子序串接，
+    /// 與匯入時 BuildMergedMesh 的面序一致 → _mergedFaceRanges 頂點邊界維持有效。</summary>
     private void RebuildMerged(ModelNodeViewModel leaf)
     {
         if (leaf.MergedContent is null || leaf.FacesContent is null) return;
@@ -442,11 +454,13 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Uses merged meshes for browsing and measurement; section mode uses separate clipped faces.
+    /// 依目前狀態切換每個 leaf 的渲染內容：
+    /// 非剖面（瀏覽 + 量測皆是）→ 合併網格（每檔 1 個 model，快）；量測拾取靠命中合併網格反查面（_mergedFaceRanges）。
+    /// 剖面 → 逐面（要顯示各面裁切後的幾何）。
     /// </summary>
     private void ApplyRenderMode()
     {
-        // Measurement resolves merged-mesh hits back to their source faces.
+        // 量測不再需要逐面渲染（拾取打合併網格反查面）→ 只有剖面才逐面。永不在量測模式掛數萬個 GeometryModel3D。
         bool merged = !SectionEnabled;
         foreach (ModelNodeViewModel leaf in Roots.SelectMany(r => r.Leaves()))
         {
@@ -457,7 +471,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // Node commands
+    // ─── 節點操作 ────────────────────────────────────────────────
 
     [RelayCommand]
     private void ZoomNode(ModelNodeViewModel node)
@@ -469,14 +483,14 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ZoomAll() => _viewport?.ZoomExtents(400);
 
-    /// <summary>Standard views with Z up.</summary>
+    /// <summary>標準視圖（機構慣例 Z 向上）：Iso / Front / Back / Top / Bottom / Left / Right</summary>
     [RelayCommand]
     private void SetStandardView(string name)
     {
         if (_viewport?.Camera is not ProjectionCamera cam) return;
         (Vector3D dir, Vector3D up) = name switch
         {
-            "Front"  => (new Vector3D(0, 1, 0),  new Vector3D(0, 0, 1)),
+            "Front"  => (new Vector3D(0, 1, 0),  new Vector3D(0, 0, 1)),  // 從 -Y 往 +Y 看
             "Back"   => (new Vector3D(0, -1, 0), new Vector3D(0, 0, 1)),
             "Top"    => (new Vector3D(0, 0, -1), new Vector3D(0, 1, 0)),
             "Bottom" => (new Vector3D(0, 0, 1),  new Vector3D(0, -1, 0)),
@@ -490,13 +504,13 @@ public partial class MainViewModel : ObservableObject
             : new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
         double dist = Math.Max(SceneDiagonal() * 1.8, 10);
         cam.Position = center - dir * dist;
-        cam.LookDirection = dir * dist;
+        cam.LookDirection = dir * dist; // 目標點 = Position + LookDirection = 場景中心
         cam.UpDirection = up;
         _viewport.ZoomExtents(400);
         SetStatus(() => Format("Runtime.View", Get($"Runtime.View{name}")));
     }
 
-    /// <summary>Toggles orthographic projection while preserving the view angle.</summary>
+    /// <summary>正交投影切換（平行投影，量尺寸不受透視變形；Helix 保持視角換相機型別）</summary>
     [ObservableProperty]
     private bool orthographicView;
 
@@ -512,16 +526,16 @@ public partial class MainViewModel : ObservableObject
     {
         if (_viewport is null || !root.IsRoot) return;
 
-        if (ReferenceEquals(root, _gizmoTarget)) GizmoEnabled = false;
+        if (ReferenceEquals(root, _gizmoTarget)) GizmoEnabled = false; // 目標被移除 → 收掉操作器
 
-        // Clear measurements that may be attached to the removed file.
+        // 量測 overlay 可能標在此檔模型上 → 一併清除（簡化：全清）
         if (Measurements.Count > 0) ClearMeasurements();
 
         foreach (ModelNodeViewModel leaf in root.Leaves())
         {
             if (leaf.BodyVisual is not null)
                 _viewport.Children.Remove(leaf.BodyVisual);
-            if (leaf.FacesContent is not null)
+            if (leaf.FacesContent is not null) // 逐面群組才在 _faceMap（與目前顯示哪種內容無關）
                 foreach (Model3D m in leaf.FacesContent.Children)
                     _faceMap.Remove(m);
             if (leaf.MergedContent is not null)
@@ -538,9 +552,9 @@ public partial class MainViewModel : ObservableObject
         SetStatus(() => Format("Runtime.Removed", removedName));
     }
 
-    // Visibility and volume
+    // ─── 顯示控制 / 體積（樹右鍵選單）────────────────────────────
 
-    /// <summary>Shows only this node until ShowAll is called.</summary>
+    /// <summary>只顯示此節點（其餘全部隱藏；「全部顯示」復原）</summary>
     [RelayCommand]
     private void IsolateNode(ModelNodeViewModel node)
     {
@@ -564,14 +578,15 @@ public partial class MainViewModel : ObservableObject
         SetStatus(() => Get("Runtime.AllVisible"));
     }
 
-    /// <summary>Sets visibility for every node, including mixed child states.</summary>
+    /// <summary>逐節點顯式遞迴設定可見性。不能只設 root（setter 同值不觸發 cascade，
+    /// 之前的隔離操作可能留下「父關子開」的混合狀態）</summary>
     private static void SetVisibleRecursive(ModelNodeViewModel node, bool visible)
     {
         node.IsVisible = visible;
         foreach (ModelNodeViewModel c in node.Children) SetVisibleRecursive(c, visible);
     }
 
-    /// <summary>Adds a volume and centroid measurement for a closed mesh.</summary>
+    /// <summary>體積/質心（網格 signed volume，封閉實體才可靠）→ 加進量測結果 + 質心標記</summary>
     [RelayCommand]
     private void MeasureVolume(ModelNodeViewModel node)
     {
@@ -621,12 +636,12 @@ public partial class MainViewModel : ObservableObject
         AddMeasurement(m);
     }
 
-    // Measurement
+    // ─── 量測 ────────────────────────────────────────────────────
 
     partial void OnCurrentModeChanged(MeasureMode value)
     {
         CancelPending();
-        ApplyRenderMode();
+        ApplyRenderMode(); // 非剖面一律合併網格（量測拾取靠反查面）；不再因切量測模式而掛逐面
         string? key = value switch
         {
             MeasureMode.None => "Runtime.ModeBrowse",
@@ -652,10 +667,10 @@ public partial class MainViewModel : ObservableObject
         SetStatus(() => Get(value ? "Runtime.UnitInch" : "Runtime.UnitMillimeter"));
     }
 
-    /// <summary>Cancels a pending pick, then exits measurement mode or closes the gizmo.</summary>
+    /// <summary>Esc（MainWindow 轉發）：先取消進行中的多段量測（保留模式），再按退回瀏覽模式；再退操作器</summary>
     public void OnEscape()
     {
-        if (CancelSectionPickIfActive()) return;
+        if (CancelSectionPickIfActive()) return; // 3點剖面定義中 → 先取消定義
         bool hadPending = _pendingPoint is not null || _pendingDirection is not null ||
                           _pendingFace is not null || _pendingAlign is not null || _align3.Count > 0;
         if (hadPending)
@@ -673,7 +688,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>Handles measurement hotkeys; repeating a key returns to browse mode.</summary>
+    /// <summary>量測模式快速鍵（MainWindow 轉發；無修飾鍵）。同鍵再按 = 退回瀏覽。回傳 false 表示非快速鍵。</summary>
     public bool OnHotKey(System.Windows.Input.Key key)
     {
         MeasureMode? m = key switch
@@ -692,11 +707,11 @@ public partial class MainViewModel : ObservableObject
         return true;
     }
 
-    /// <summary>Handles left-clicks forwarded by MainWindow.</summary>
+    /// <summary>MainWindow 滑鼠左鍵點擊轉發進來</summary>
     public void OnViewportClick(Point position)
     {
         if (_viewport is null || IsBusy) return;
-        if (HandleSectionPlanePick(position)) return;
+        if (HandleSectionPlanePick(position)) return; // 3點剖面定義模式優先吃點擊（v0.5.0）
         if (CurrentMode is MeasureMode.None or MeasureMode.Drag) return;
 
         var hits = _viewport.Viewport.FindHits(position);
@@ -706,13 +721,13 @@ public partial class MainViewModel : ObservableObject
         foreach (var h in hits)
         {
             if (h.Model is null) continue;
-            // Section mode renders individual faces.
+            // 剖面模式：渲染逐面 → 直接查 _faceMap
             if (_faceMap.TryGetValue(h.Model, out FaceInfo? f))
             {
                 fi = f; hitPoint = h.Position; hitNormal = h.Normal;
                 break;
             }
-            // Other modes resolve merged-mesh vertex indices to faces.
+            // 量測/瀏覽模式：渲染合併網格 → 用命中三角形頂點 index 反查回是哪個面
             if (h.RayHit is not null && _mergedFaceRanges.TryGetValue(h.Model, out var range))
             {
                 FaceInfo? mf = ResolveMergedFace(range, h.RayHit.VertexIndex1);
@@ -740,13 +755,13 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>Finds the source face for a merged-mesh vertex by binary search.</summary>
+    /// <summary>命中合併網格的某頂點 index → 反查回是哪個面（依面序的頂點起始邊界二分搜尋）。</summary>
     private static FaceInfo? ResolveMergedFace((int[] Starts, FaceInfo[] Faces) range, int vertexIndex)
     {
         int[] starts = range.Starts;
         FaceInfo[] faces = range.Faces;
         if (vertexIndex < 0 || faces.Length == 0 || vertexIndex >= starts[faces.Length]) return null;
-        // Find the largest face start not exceeding the hit vertex index.
+        // 找最大的 k 使 starts[k] <= vertexIndex（face k 佔頂點 [starts[k], starts[k+1])）
         int lo = 0, hi = faces.Length - 1, ans = 0;
         while (lo <= hi)
         {
@@ -763,7 +778,7 @@ public partial class MainViewModel : ObservableObject
         double snapTol = diag * 0.02;
         double markerR = Math.Clamp(diag * 0.004, 0.01, 5.0);
 
-        // STL has no B-rep edges or faces for these modes.
+        // 無 B-rep 來源（STL）只支援部分模式
         if (fi.BrepFace is null && CurrentMode is MeasureMode.Edge or MeasureMode.Circle or MeasureMode.Face)
         {
             SetStatus(() => Get("Runtime.MeshMeasurementLimited"));
@@ -885,7 +900,7 @@ public partial class MainViewModel : ObservableObject
                 ModelNodeViewModel? root = FindRootOf(fi.Owner);
                 if (root is null) { SetStatus(() => Get("Runtime.RootNotFound")); break; }
 
-                if (_align3.Count < 3)
+                if (_align3.Count < 3) // 來源 3 點（要移動的檔案）
                 {
                     if (_align3.Count > 0 && !ReferenceEquals(_align3[0].Root, root))
                     {
@@ -905,7 +920,7 @@ public partial class MainViewModel : ObservableObject
                         ? Format("Runtime.Align3SourcePoint", sourceCount, root.Name)
                         : Get("Runtime.Align3SourceComplete"));
                 }
-                else
+                else // 目標 3 點（另一個檔案，順序對應來源點）
                 {
                     if (ReferenceEquals(_align3[0].Root, root))
                     {
@@ -1007,7 +1022,7 @@ public partial class MainViewModel : ObservableObject
         _align3.Clear();
     }
 
-    // Rigid part transforms
+    // ─── 零件剛體變換（兩點對齊=平移、旋轉 90°、三點對齊=旋轉+平移）──
 
     private void TranslateRoot(ModelNodeViewModel root, Vector3D v)
     {
@@ -1018,17 +1033,19 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Transforms B-rep objects, meshes, edges and bounds for one file.
-    /// op and m must represent the same transform in CADability and WPF conventions.
+    /// 對整個檔案（root）套剛體變換：B-rep 用 ModOp 整體 Modify（量測維持精確）、
+    /// 渲染網格 / 合併網格 / 邊線端點同步重算、邊界重新計算。
+    /// op 與 m 必須是同一個變換（CADability 與 WPF 兩種表示）。
     /// </summary>
     private void TransformRoot(ModelNodeViewModel root, CADability.ModOp op, Matrix3D m)
     {
         if (_viewport is null) return;
-        ClearMeasurements();
+        ClearMeasurements(); // 量測標記位置已失效
 
         var leaves = root.Leaves().ToList();
 
-        // Transform whole B-rep objects sequentially to avoid shared-edge changes.
+        // B-rep：對 Solid/Shell 整體 Modify（避免共用邊被逐面重複變換）。
+        // CADability 物件非執行緒安全 → 維持循序
         foreach (ModelNodeViewModel leaf in leaves)
             foreach (CADability.GeoObject.IGeoObject g in leaf.SourceGeos)
             {
@@ -1036,7 +1053,7 @@ public partial class MainViewModel : ObservableObject
                 catch { }
             }
 
-        // Transform independent frozen face meshes in parallel.
+        // 渲染網格：面級平行變換（來源/輸出皆 frozen、各面獨立 → 安全；大檔 64k 面吃滿多核）
         var faceItems = new List<(GeometryModel3D Gm, FaceInfo Fi)>();
         foreach (ModelNodeViewModel leaf in leaves)
             if (leaf.FacesContent is not null)
@@ -1046,7 +1063,7 @@ public partial class MainViewModel : ObservableObject
 
         var moved = new MeshGeometry3D[faceItems.Count];
         Parallel.For(0, faceItems.Count, i => moved[i] = TransformMesh(faceItems[i].Fi.Mesh, m));
-        for (int i = 0; i < faceItems.Count; i++)
+        for (int i = 0; i < faceItems.Count; i++) // 視覺樹賦值回 UI 執行緒循序做
         {
             faceItems[i].Fi.Mesh = moved[i];
             faceItems[i].Gm.Geometry = moved[i];
@@ -1055,15 +1072,15 @@ public partial class MainViewModel : ObservableObject
         foreach (ModelNodeViewModel leaf in leaves)
         {
             if (leaf.FacesContent is not null)
-                RebuildMerged(leaf);
+                RebuildMerged(leaf); // 合併網格同步
 
-            // Update edge data before rebuilding the merged visual.
+            // 邊線端點（資料）；實際合併線於迴圈後重建
             if (leaf.OriginalEdgePoints is not null)
                 leaf.OriginalEdgePoints = TransformPoints(leaf.OriginalEdgePoints, m);
         }
 
         RecomputeBounds(root);
-        if (SectionEnabled) ApplySection();
+        if (SectionEnabled) ApplySection(); // 內含 RefreshRootEdges
         else RefreshRootEdges(root);
     }
 
@@ -1074,7 +1091,7 @@ public partial class MainViewModel : ObservableObject
         var mesh = new MeshGeometry3D
         {
             Positions = positions,
-            TriangleIndices = src.TriangleIndices,
+            TriangleIndices = src.TriangleIndices, // frozen，可共用（法向量缺省由 WPF 自算）
         };
         mesh.Freeze();
         return mesh;
@@ -1088,7 +1105,7 @@ public partial class MainViewModel : ObservableObject
         return pts;
     }
 
-    /// <summary>Recomputes bounds from transformed meshes and edges.</summary>
+    /// <summary>旋轉後 AABB 不能只平移 → 由網格/邊線重新計算（bottom-up）</summary>
     private Rect3D RecomputeBounds(ModelNodeViewModel node)
     {
         Rect3D b = Rect3D.Empty;
@@ -1110,7 +1127,7 @@ public partial class MainViewModel : ObservableObject
         return b;
     }
 
-    // Rotate selected file
+    // ─── 旋轉 90°（樹面板選取的檔案，繞其中心）──────────────────
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private void RotateRoot(string axisName)
@@ -1144,9 +1161,9 @@ public partial class MainViewModel : ObservableObject
     private static bool ContainsNode(ModelNodeViewModel parent, ModelNodeViewModel target) =>
         parent.Children.Any(c => ReferenceEquals(c, target) || ContainsNode(c, target));
 
-    // Three-point alignment math is in RigidAlign.
+    // 三點對齊的剛體變換數學在 Services/RigidAlign.cs（SmokeTest --align-test 驗證）
 
-    // Shared helpers
+    // ─── 共用 ────────────────────────────────────────────────────
 
     private Rect3D UnionBounds()
     {

@@ -1,4 +1,5 @@
-// Three-point alignment checks: known transform, Matrix3D/ModOp agreement, and collinear rejection.
+// 三點對齊剛體變換數學驗證：
+// (1) 已知變換還原 (2) Matrix3D ↔ ModOp 兩種表示一致 (3) 共線拒絕
 using System.Windows.Media.Media3D;
 using STPViewer.Services;
 
@@ -10,29 +11,29 @@ internal static class AlignTest
     {
         int failures = 0;
 
-        // Recover a known 90-degree Z rotation followed by translation (5,-3,2).
+        // ── (1) 已知剛體變換：繞 Z 軸 90° + 平移 (5,-3,2)，三點求解後應還原同一變換 ──
         var truth = Matrix3D.Identity;
         truth.RotateAt(new Quaternion(new Vector3D(0, 0, 1), 90), new Point3D(2, 1, 0));
         truth.Translate(new Vector3D(5, -3, 2));
 
         var p1 = new Point3D(0, 0, 0);
         var p2 = new Point3D(10, 0, 0);
-        var p3 = new Point3D(0, 7, 3);  // Not collinear with the first two points.
+        var p3 = new Point3D(0, 7, 3);  // 不共線、不在同平面軸上
         Point3D q1 = truth.Transform(p1), q2 = truth.Transform(p2), q3 = truth.Transform(p3);
 
         bool ok = RigidAlign.TryRigidTransform(p1, p2, p3, q1, q2, q3, out Matrix3D m);
         failures += Check("three-point transform solved", ok, true);
 
-        // Corresponding points must coincide.
+        // 三個對應點要精確貼合
         failures += CheckPoint("p1→q1", m.Transform(p1), q1);
         failures += CheckPoint("p2→q2", m.Transform(p2), q2);
         failures += CheckPoint("p3→q3", m.Transform(p3), q3);
 
-        // An independent fourth point checks the full rigid transform.
+        // 剛體變換唯一性：任意第 4 點也應該跟著正確變換
         var r = new Point3D(-4, 12, 8);
         failures += CheckPoint("fourth point", m.Transform(r), truth.Transform(r));
 
-        // CADability ModOp and WPF Matrix3D must transform points identically.
+        // ── (2) ToModOp：CADability ModOp 與 WPF Matrix3D 對同一點要算出同樣結果 ──
         CADability.ModOp op = RigidAlign.ToModOp(m);
         foreach (Point3D p in new[] { p1, p2, p3, r, new Point3D(1.5, -2.25, 9) })
         {
@@ -47,7 +48,7 @@ internal static class AlignTest
         }
         System.Console.WriteLine($"  {(failures == 0 ? "PASS" : "----")}: ModOp/Matrix3D agree at five points");
 
-        // Collinear source points must be rejected.
+        // ── (3) 共線拒絕 ──
         bool collinearRejected = !RigidAlign.TryRigidTransform(
             new Point3D(0, 0, 0), new Point3D(1, 0, 0), new Point3D(2, 0, 0), // Collinear.
             q1, q2, q3, out _);

@@ -7,7 +7,7 @@ using STPViewer.Services;
 
 namespace STPViewer.ViewModels;
 
-/// <summary>Visibility toggle for one quick bar button.</summary>
+/// <summary>快速列單一按鈕的顯示開關（選單「快速列 → 自訂按鈕」的 checkbox 項）</summary>
 public partial class QuickBarItemViewModel : ObservableObject
 {
     public string Key { get; }
@@ -30,11 +30,13 @@ public partial class QuickBarItemViewModel : ObservableObject
 }
 
 /// <summary>
-/// Quick bar button registry and saved visibility selections.
+/// 快速工具列自訂：所有功能都在選單列，快速列只放使用者勾選的常用按鈕。
+/// XAML 以索引子綁定：Visibility="{Binding QuickBar[Point].IsChecked, Converter=…}"。
+/// 勾選狀態隨 settings.json（QuickBarKeys）保存；null = 用預設。
 /// </summary>
 public partial class QuickBarViewModel : ObservableObject
 {
-    /// <summary>Button order, label key, and default visibility.</summary>
+    /// <summary>註冊表 = 快速列順序 + 選單顯示名 + 是否預設顯示（一般 user 常用）</summary>
     private static readonly (string Key, string Label, bool Default)[] Registry =
     {
         ("Import",       "QuickBar.Import",        true),
@@ -72,7 +74,7 @@ public partial class QuickBarViewModel : ObservableObject
 
     private readonly Dictionary<string, QuickBarItemViewModel> _byKey;
 
-    /// <summary>All buttons in quick bar order.</summary>
+    /// <summary>依快速列順序的全部項目（選單自訂清單用）</summary>
     public IReadOnlyList<QuickBarItemViewModel> Items { get; }
 
     public QuickBarViewModel()
@@ -81,10 +83,10 @@ public partial class QuickBarViewModel : ObservableObject
         _byKey = Items.ToDictionary(i => i.Key);
     }
 
-    /// <summary>Indexer used by XAML visibility bindings.</summary>
+    /// <summary>XAML 索引子綁定入口：QuickBar[Point].IsChecked</summary>
     public QuickBarItemViewModel this[string key] => _byKey[key];
 
-    /// <summary>Loads saved visibility keys; null retains defaults.</summary>
+    /// <summary>套用保存的勾選清單；null = 維持預設（含未知 key 容錯：新版本新增按鈕用預設值）</summary>
     public void Load(List<string>? visibleKeys)
     {
         if (visibleKeys is null) return;
@@ -93,7 +95,7 @@ public partial class QuickBarViewModel : ObservableObject
             item.IsChecked = set.Contains(item.Key);
     }
 
-    /// <summary>Selected keys saved in settings.json.</summary>
+    /// <summary>目前勾選清單（存 settings.json）</summary>
     public List<string> ToKeys() =>
         Items.Where(i => i.IsChecked).Select(i => i.Key).ToList();
 

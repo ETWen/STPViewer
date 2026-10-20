@@ -1,4 +1,4 @@
-// Section clipping checks the retained side and triangle area.
+// 剖面裁切數學驗證：對單位幾何裁切，檢查保留側與面積守恆
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using STPViewer.Services;
@@ -11,7 +11,7 @@ internal static class ClipTest
     {
         int failures = 0;
 
-        // A single triangle with area 50.
+        // 單一三角形 (0,0,0)(10,0,0)(0,10,0)，面積 50
         var mesh = new MeshGeometry3D
         {
             Positions = new Point3DCollection
@@ -22,25 +22,25 @@ internal static class ClipTest
         };
         mesh.Freeze();
 
-        // A plane at x=20 retains the full triangle.
+        // case 1: 平面 x=20，全保留
         var m1 = SectionService.ClipMesh(mesh, new Point3D(20, 0, 0), new Vector3D(1, 0, 0));
         failures += Check("fully retained", Area(m1), 50.0);
 
-        // A plane at x=-1 removes the full triangle.
+        // case 2: 平面 x=-1，全裁掉
         var m2 = SectionService.ClipMesh(mesh, new Point3D(-1, 0, 0), new Vector3D(1, 0, 0));
         failures += Check("fully removed", Area(m2), 0.0);
 
-        // At x=5, the retained trapezoid has area 50 - 12.5 = 37.5.
+        // case 3: 平面 x=5 → 保留 x≤5：梯形面積 = 50 - 右側小三角形(底5高5)/2 = 50 - 12.5 = 37.5
         var m3 = SectionService.ClipMesh(mesh, new Point3D(5, 0, 0), new Vector3D(1, 0, 0));
         failures += Check("half clipped (x<=5)", Area(m3), 37.5);
         foreach (Point3D p in m3.Positions)
             if (p.X > 5 + 1e-9) { Console.WriteLine($"  FAIL: vertex x={p.X} is outside retained side"); failures++; }
 
-        // Reverse the plane normal to retain the smaller triangle.
+        // case 4: 反向（保留 x≥5）→ 12.5
         var m4 = SectionService.ClipMesh(mesh, new Point3D(5, 0, 0), new Vector3D(-1, 0, 0));
         failures += Check("half clipped (x>=5)", Area(m4), 12.5);
 
-        // Clip a line segment.
+        // case 5: 線段裁切
         var segs = new Point3DCollection { new(0, 0, 0), new(10, 0, 0) };
         Point3DCollection s1 = SectionService.ClipSegments(segs, new Point3D(4, 0, 0), new Vector3D(1, 0, 0));
         double segLen = s1.Count == 2 ? (s1[1] - s1[0]).Length : -1;

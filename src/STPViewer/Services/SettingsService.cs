@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace STPViewer.Services;
 
-/// <summary>User settings stored in %LOCALAPPDATA%\STPViewer\settings.json.</summary>
+/// <summary>使用者設定（%LOCALAPPDATA%\STPViewer\settings.json）</summary>
 public class AppSettings
 {
     public double WindowWidth { get; set; } = double.NaN;
@@ -17,11 +17,11 @@ public class AppSettings
     public string? Language { get; set; }
     public List<string> RecentFiles { get; set; } = new();
 
-    /// <summary>Visible quick bar keys; null uses registry defaults.</summary>
+    /// <summary>快速工具列顯示的按鈕 key 清單；null = 用預設（QuickBarViewModel.Registry）</summary>
     public List<string>? QuickBarKeys { get; set; }
 }
 
-/// <summary>Loads defaults for missing or invalid settings and ignores save failures.</summary>
+/// <summary>設定讀寫：壞檔/缺檔一律回預設值，儲存失敗靜默（設定不值得讓程式閃退）</summary>
 public static class SettingsService
 {
     public const int MaxRecentFiles = 10;

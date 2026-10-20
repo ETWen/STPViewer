@@ -5,13 +5,15 @@ using System.Text;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using STPViewer.Services;
-using IOPath = System.IO.Path; // Avoid the CADability.GeoObject.Path name collision.
+using IOPath = System.IO.Path; // CADability.GeoObject.Path（曲線）撞名
 
 namespace SmokeTest;
 
 /// <summary>
-/// Headless STL export checks:
-/// binary round trip, ASCII facet structure, and degenerate triangle filtering.
+/// STL 匯出驗證（無 UI）：
+/// 1) binary — 已知立方體網格寫出 → 解析 header/三角形數/座標範圍比對（含縮放）
+/// 2) ASCII — facet 數與 solid/endsolid 結構
+/// 3) 退化三角形（零面積）自動濾除
 /// </summary>
 public static class StlExportTest
 {
@@ -22,9 +24,9 @@ public static class StlExportTest
         string dir = IOPath.Combine(IOPath.GetTempPath(), "stpviewer_stl_test");
         Directory.CreateDirectory(dir);
 
-        MeshGeometry3D cube = BuildCube(10); // 10x10x10 mm, 12 triangles.
+        MeshGeometry3D cube = BuildCube(10); // 10×10×10 mm、12 三角形
 
-        // Binary triangle count and scaled coordinate range.
+        // 1) binary：三角形數 + 縮放後座標範圍
         {
             string f = IOPath.Combine(dir, "cube_bin.stl");
             double scale = 1.0 / 25.4; // mm to inches.
@@ -35,7 +37,7 @@ public static class StlExportTest
             Report(ref failed, ok, $"binary round trip: 12 triangles, inch range [{min:F4}, {max:F4}]");
         }
 
-        // ASCII facet count and structure.
+        // 2) ASCII：facet 數 + 結構
         {
             string f = IOPath.Combine(dir, "cube_ascii.stl");
             int written = StlExportService.Write(f, new[] { cube }, ascii: true, scale: 1.0);
@@ -47,12 +49,12 @@ public static class StlExportTest
             Report(ref failed, ok, $"ASCII structure valid, facets = {facets}");
         }
 
-        // A zero-area triangle must be filtered from the export.
+        // 3) 退化三角形濾除：加一個零面積三角形 → 仍是 12
         {
             var degenerate = new MeshGeometry3D();
             degenerate.Positions.Add(new Point3D(0, 0, 0));
             degenerate.Positions.Add(new Point3D(1, 1, 1));
-            degenerate.Positions.Add(new Point3D(2, 2, 2)); // Collinear: zero area.
+            degenerate.Positions.Add(new Point3D(2, 2, 2)); // 共線 → 面積 0
             degenerate.TriangleIndices.Add(0);
             degenerate.TriangleIndices.Add(1);
             degenerate.TriangleIndices.Add(2);
@@ -65,7 +67,8 @@ public static class StlExportTest
             Report(ref failed, ok, $"degenerate triangle filtered ({written} written)");
         }
 
-        // Optional real STEP input: retessellate B-rep geometry at fine precision.
+        // 4)（可選）真實 STEP：B-rep 精細重新三角化 → 寫 binary STL 驗證
+        //（不測「較粗」：CADability GetTriangulation 對比快取粗的精度回傳既有快取，粗化無效 → 功能已移除）
         if (stepPath is not null)
         {
             var data = new StepImportService().Import(stepPath);
@@ -80,7 +83,7 @@ public static class StlExportTest
             (uint count, _, _) = ReadBinary(f);
             Report(ref failed, meshes.Count > 0 && written > 0 && count == written,
                 $"fine retessellation: {meshes.Count} faces, {written:N0} triangles");
-            // CADability's triangle count is not monotonic in precision; 0.15x is measurably finer.
+            // CADability 三角形數對精度非單調（0.4× 反而比 1× 少），Fine=0.15× 實測明顯更細
             Report(ref failed, written > importTris,
                 $"fine ({written:N0}) > imported default ({importTris:N0})");
         }
@@ -103,7 +106,7 @@ public static class StlExportTest
         if (!ok) failed++;
     }
 
-    /// <summary>Axis-aligned cube from 0 to size, with 12 triangles.</summary>
+    /// <summary>0..size 的軸對齊立方體，12 個三角形（法向不講究，STL 寫出時自算）</summary>
     private static MeshGeometry3D BuildCube(double s)
     {
         var m = new MeshGeometry3D();

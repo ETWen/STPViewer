@@ -6,22 +6,22 @@ using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.ViewModels;
 
-// Drag mode
+// ─── 拖曳模式（左鍵按住零件沿螢幕平面拖；放開才烘進 B-rep）──────────
 public partial class MainViewModel
 {
-    // Preview with a transform, then commit to B-rep on release.
+    // 拖曳模式：暫時 Transform 跟著滑鼠，放開才一次性烘進 B-rep（TranslateRoot）
     private ModelNodeViewModel? _dragRoot;
-    private Point3D _dragAnchor;
-    private Vector3D _dragApplied;
+    private Point3D _dragAnchor;              // 命中點（世界座標），拖曳平面的錨點
+    private Vector3D _dragApplied;            // 目前累計位移
     private TranslateTransform3D? _dragTransform;
 
-    /// <summary>Starts dragging a hit part; returns true when the mouse should be captured.</summary>
+    /// <summary>左鍵按下：命中零件則開始拖曳（回傳 true 表示要捕捉滑鼠）</summary>
     public bool OnDragStart(Point position)
     {
         if (_viewport is null || IsBusy || CurrentMode != MeasureMode.Drag || _dragRoot is not null)
             return false;
 
-        // Hits can come from merged meshes or section faces.
+        // 兩種渲染內容都可能在場：合併網格查 _mergedMap、逐面（剖面時）查 _faceMap
         ModelNodeViewModel? leaf = null;
         Point3D anchor = default;
         foreach (var h in _viewport.Viewport.FindHits(position))
@@ -42,14 +42,14 @@ public partial class MainViewModel
             if (l.BodyVisual is not null)
                 l.BodyVisual.Transform = _dragTransform;
 
-        // Hide edges while moving to avoid rebuilding them each frame.
+        // 拖曳中隱藏邊線（LinesVisual3D 隨 Transform 變更逐幀重建會卡）
         _edgesSuspended = true;
         SetEdgesActive(false);
         SetStatus(() => Format("Runtime.Dragging", root.Name));
         return true;
     }
 
-    /// <summary>Projects pointer movement onto the camera-facing plane through the anchor.</summary>
+    /// <summary>滑鼠移動：把 2D 位移投影到「過錨點、面向相機」的平面上 → 暫時 Transform</summary>
     public void OnDragMove(Point position)
     {
         if (_viewport?.Camera is not System.Windows.Media.Media3D.ProjectionCamera cam ||
@@ -63,14 +63,15 @@ public partial class MainViewModel
         _dragTransform.OffsetZ = _dragApplied.Z;
     }
 
-    /// <summary>Commits the temporary transform to B-rep on release.</summary>
+    /// <summary>放開：移除暫時 Transform，一次性烘進 B-rep（量測精度不受拖曳影響）</summary>
     public bool OnDragEnd()
     {
         if (_dragRoot is null) return false;
         ModelNodeViewModel root = _dragRoot;
         Vector3D delta = _dragApplied;
 
-        // HelixToolkit hit testing requires Identity rather than a null transform.
+        // 清除暫時位移：必須用 Identity，不可用 null —— HelixToolkit GetTransform 對 child.Transform
+        // 不做 null 檢查（Children.Add(null) 會拋「無法新增空值到集合中」），下次 FindHits 即 crash
         foreach (ModelNodeViewModel l in root.Leaves())
             if (l.BodyVisual is not null)
                 l.BodyVisual.Transform = Transform3D.Identity;
@@ -78,11 +79,11 @@ public partial class MainViewModel
         _dragTransform = null;
         _dragApplied = default;
         _edgesSuspended = false;
-        SetEdgesActive(true);
+        SetEdgesActive(true); // 恢復所有檔案的邊線（被拖檔案的點隨後由 TranslateRoot 更新，期間不會渲染）
 
         if (delta.LengthSquared > 1e-12)
         {
-            TranslateRoot(root, delta);
+            TranslateRoot(root, delta); // 烘進 B-rep + 網格 + 邊線 + 邊界（量測清空）
             SetStatus(() => Format("Runtime.Dragged", root.Name, delta.X, delta.Y, delta.Z));
         }
         return true;

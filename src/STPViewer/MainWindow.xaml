@@ -28,7 +28,7 @@
     </Window.Resources>
 
     <DockPanel>
-        <!-- Menu bar -->
+        <!-- ─── 選單列（全部功能，分類下拉）─── -->
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="{loc:Loc Ui.Main.FileF}">
                 <MenuItem Header="{loc:Loc Ui.Main.MenuImport}" Command="{Binding ImportCommand}"
@@ -153,7 +153,7 @@
             </MenuItem>
         </Menu>
 
-        <!-- Customizable Quick Bar -->
+        <!-- ─── 快速工具列（可自訂：選單「快速列 → 自訂按鈕」勾選）─── -->
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
                 <Button Style="{StaticResource QuickButton}" Command="{Binding ImportCommand}"
@@ -256,7 +256,7 @@
             </ToolBar>
         </ToolBarTray>
 
-        <!-- Section controls -->
+        <!-- ─── 剖面參數列（只在剖面開啟時出現）─── -->
         <ToolBarTray DockPanel.Dock="Top"
                      Visibility="{Binding SectionEnabled, Converter={StaticResource BoolToVis}}">
             <ToolBar>
@@ -280,7 +280,7 @@
             </ToolBar>
         </ToolBarTray>
 
-        <!-- Status bar -->
+        <!-- ─── 狀態列 ─── -->
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusText}" />
@@ -300,7 +300,7 @@
                 <ColumnDefinition Width="300" MinWidth="160" />
             </Grid.ColumnDefinitions>
 
-            <!-- Assembly tree -->
+            <!-- ─── 裝配樹面板 ─── -->
             <GroupBox Grid.Column="0" Header="{loc:Loc Ui.Main.ModelsAssemblyTree}" Margin="4">
                 <DockPanel>
                     <TextBox DockPanel.Dock="Top" Margin="0,2,0,4"
@@ -390,7 +390,7 @@
                           VerticalAlignment="Stretch" Background="#FFD8D8D8"
                           ToolTip="{loc:Loc Ui.Main.DragResizePanel}" />
 
-            <!-- 3D viewport -->
+            <!-- ─── 3D 視圖 ─── -->
             <h:HelixViewport3D x:Name="viewport" Grid.Column="2"
                                ShowViewCube="True" ShowCoordinateSystem="True"
                                ShowFrameRate="False" ZoomExtentsWhenLoaded="True"
@@ -418,7 +418,8 @@
                 <h:DefaultLights />
             </h:HelixViewport3D>
 
-            <!-- Transparent gizmo overlay above the main viewport. -->
+            <!-- 操作器疊圖層：透明 Viewport3D 疊在主視窗上、永遠最上層。
+                 只在操作器開啟時 IsHitTestVisible（否則空白處滑鼠才會穿透回主視窗） -->
             <Viewport3D x:Name="gizmoOverlay" Grid.Column="2"
                         IsHitTestVisible="{Binding GizmoEnabled}" />
 
@@ -426,7 +427,7 @@
                           VerticalAlignment="Stretch" Background="#FFD8D8D8"
                           ToolTip="{loc:Loc Ui.Main.DragResizePanel}" />
 
-            <!-- Measurement results -->
+            <!-- ─── 量測結果面板 ─── -->
             <GroupBox Grid.Column="4" Header="{loc:Loc Ui.Main.Measurements}" Margin="4">
                 <ListBox ItemsSource="{Binding Measurements}" HorizontalContentAlignment="Stretch"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">

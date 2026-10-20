@@ -2,12 +2,12 @@ using System.IO;
 
 namespace SmokeTest;
 
-/// <summary>Generate a binary STL grid with two triangles per cell and noncoplanar vertices.</summary>
+/// <summary>產生測試用 binary STL：一片 gridN×gridN 的網格，每格 2 個三角形（波浪起伏，避免全共面）。</summary>
 internal static class MakeStl
 {
     public static void Run(string path, int triCount)
     {
-        // Two triangles per cell; use a square grid large enough for the requested count.
+        // 每格 2 三角，格數 = triCount/2；邊長 grid = ceil(sqrt(cells))
         int cells = System.Math.Max(1, triCount / 2);
         int grid = (int)System.Math.Ceiling(System.Math.Sqrt(cells));
         int tris = grid * grid * 2;
