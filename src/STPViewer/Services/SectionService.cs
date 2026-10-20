@@ -4,8 +4,8 @@ using System.Windows.Media.Media3D;
 namespace STPViewer.Services;
 
 /// <summary>
-/// 剖面：把三角網格 / 線段集用半空間裁切（保留 dot(p - p0, n) ≤ 0 的一側）。
-/// WPF 3D 沒有 GPU clip plane，採 CPU 裁切後置換 Geometry（原始 mesh 保留可還原）。
+/// Clips meshes and line segments to the half-space dot(p - p0, n) ≤ 0.
+/// The original geometry remains available for restoration.
 /// </summary>
 public static class SectionService
 {
@@ -23,7 +23,7 @@ public static class SectionService
         Point3DCollection pos = src.Positions;
         Int32Collection idx = src.TriangleIndices;
 
-        // 頂點距離快取
+        // Cache signed distances for each vertex.
         var dist = new double[pos.Count];
         for (int i = 0; i < pos.Count; i++)
             dist[i] = Vector3D.DotProduct(pos[i] - planePoint, normal);
@@ -47,7 +47,7 @@ public static class SectionService
                 continue;
             }
 
-            // 部分在保留側：Sutherland-Hodgman 裁出 3 或 4 邊形，扇形分割
+            // Clip the polygon and triangulate it as a fan.
             int n = 0;
             for (int k = 0; k < 3; k++)
             {
@@ -78,7 +78,7 @@ public static class SectionService
         idx.Add(i); idx.Add(i + 1); idx.Add(i + 2);
     }
 
-    /// <summary>裁切線段集（成對端點）</summary>
+    /// <summary>Clips paired line segment endpoints.</summary>
     public static Point3DCollection ClipSegments(Point3DCollection segments, Point3D planePoint, Vector3D normal)
     {
         var result = new Point3DCollection();

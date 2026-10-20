@@ -1,5 +1,4 @@
-// 三點對齊剛體變換數學驗證：
-// (1) 已知變換還原 (2) Matrix3D ↔ ModOp 兩種表示一致 (3) 共線拒絕
+// Three-point alignment checks: known transform, Matrix3D/ModOp agreement, and collinear rejection.
 using System.Windows.Media.Media3D;
 using STPViewer.Services;
 
@@ -11,29 +10,29 @@ internal static class AlignTest
     {
         int failures = 0;
 
-        // ── (1) 已知剛體變換：繞 Z 軸 90° + 平移 (5,-3,2)，三點求解後應還原同一變換 ──
+        // Recover a known 90-degree Z rotation followed by translation (5,-3,2).
         var truth = Matrix3D.Identity;
         truth.RotateAt(new Quaternion(new Vector3D(0, 0, 1), 90), new Point3D(2, 1, 0));
         truth.Translate(new Vector3D(5, -3, 2));
 
         var p1 = new Point3D(0, 0, 0);
         var p2 = new Point3D(10, 0, 0);
-        var p3 = new Point3D(0, 7, 3);  // 不共線、不在同平面軸上
+        var p3 = new Point3D(0, 7, 3);  // Not collinear with the first two points.
         Point3D q1 = truth.Transform(p1), q2 = truth.Transform(p2), q3 = truth.Transform(p3);
 
         bool ok = RigidAlign.TryRigidTransform(p1, p2, p3, q1, q2, q3, out Matrix3D m);
-        failures += Check("三點求解成功", ok, true);
+        failures += Check("three-point transform solved", ok, true);
 
-        // 三個對應點要精確貼合
+        // Corresponding points must coincide.
         failures += CheckPoint("p1→q1", m.Transform(p1), q1);
         failures += CheckPoint("p2→q2", m.Transform(p2), q2);
         failures += CheckPoint("p3→q3", m.Transform(p3), q3);
 
-        // 剛體變換唯一性：任意第 4 點也應該跟著正確變換
+        // An independent fourth point checks the full rigid transform.
         var r = new Point3D(-4, 12, 8);
-        failures += CheckPoint("任意第4點", m.Transform(r), truth.Transform(r));
+        failures += CheckPoint("fourth point", m.Transform(r), truth.Transform(r));
 
-        // ── (2) ToModOp：CADability ModOp 與 WPF Matrix3D 對同一點要算出同樣結果 ──
+        // CADability ModOp and WPF Matrix3D must transform points identically.
         CADability.ModOp op = RigidAlign.ToModOp(m);
         foreach (Point3D p in new[] { p1, p2, p3, r, new Point3D(1.5, -2.25, 9) })
         {
@@ -42,28 +41,28 @@ internal static class AlignTest
             bool same = Dist(new Point3D(gp.x, gp.y, gp.z), wpf) < 1e-9;
             if (!same)
             {
-                System.Console.WriteLine($"  FAIL: ModOp/Matrix3D 不一致 @ ({p.X},{p.Y},{p.Z})");
+                System.Console.WriteLine($"  FAIL: ModOp/Matrix3D mismatch at ({p.X},{p.Y},{p.Z})");
                 failures++;
             }
         }
-        System.Console.WriteLine($"  {(failures == 0 ? "PASS" : "----")}: ModOp ↔ Matrix3D 一致（5 個測試點）");
+        System.Console.WriteLine($"  {(failures == 0 ? "PASS" : "----")}: ModOp/Matrix3D agree at five points");
 
-        // ── (3) 共線拒絕 ──
+        // Collinear source points must be rejected.
         bool collinearRejected = !RigidAlign.TryRigidTransform(
-            new Point3D(0, 0, 0), new Point3D(1, 0, 0), new Point3D(2, 0, 0), // 共線
+            new Point3D(0, 0, 0), new Point3D(1, 0, 0), new Point3D(2, 0, 0), // Collinear.
             q1, q2, q3, out _);
-        failures += Check("來源共線 → 拒絕", collinearRejected, true);
-        failures += Check("Collinear 判定", RigidAlign.Collinear(
+        failures += Check("collinear source rejected", collinearRejected, true);
+        failures += Check("collinearity detection", RigidAlign.Collinear(
             new Point3D(0, 0, 0), new Point3D(1, 1, 1), new Point3D(3, 3, 3)), true);
 
-        System.Console.WriteLine(failures == 0 ? "AlignTest: 全部通過" : $"AlignTest: {failures} 項失敗");
+        System.Console.WriteLine(failures == 0 ? "AlignTest: all passed" : $"AlignTest: {failures} failed");
         return failures;
     }
 
     private static int Check(string name, bool actual, bool expected)
     {
         bool ok = actual == expected;
-        System.Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}: {name}（{actual}）");
+        System.Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}: {name} ({actual})");
         return ok ? 0 : 1;
     }
 
@@ -71,7 +70,7 @@ internal static class AlignTest
     {
         double d = Dist(actual, expected);
         bool ok = d < 1e-9;
-        System.Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}: {name} 誤差 {d:E2}");
+        System.Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}: {name} error {d:E2}");
         return ok ? 0 : 1;
     }
 

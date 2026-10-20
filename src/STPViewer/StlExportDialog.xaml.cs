@@ -3,7 +3,7 @@ using STPViewer.ViewModels;
 
 namespace STPViewer;
 
-/// <summary>STL 匯出參數對話框 — 選項邏輯在 StlExportViewModel，這裡只做確認/取消</summary>
+/// <summary>STL export settings dialog; the view model owns the options.</summary>
 public partial class StlExportDialog : Window
 {
     public StlExportViewModel ViewModel { get; }

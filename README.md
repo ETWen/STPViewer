@@ -1,6 +1,6 @@
 # STPViewer
 
-[![English](https://img.shields.io/badge/English-2ea043.svg)](README.md) [![繁體中文](https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-lightgrey.svg)](README.zh-TW.md)
+[![English](https://img.shields.io/badge/English-2ea043.svg)](README.md) [![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-lightgrey.svg)](README.zh-CN.md) [![繁體中文](https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-lightgrey.svg)](README.zh-TW.md)
 
 > A Windows desktop 3D viewer for STP/STEP CAD files — multi-file import, assembly tree, and point / distance / edge / face / circle measurement. Built with C# .NET 8 WPF.
 
@@ -52,6 +52,7 @@ Open mechanical STEP parts for quick review and measurement without a heavyweigh
 - **Interference check** 🧩 — with 2+ visible files, checks **every pair**: red intersection curves + intersecting triangle-pair count, or the minimum gap (gap ≈ 0 means a fit/match; coplanar contact is not interference)
 - **Section plane** ✂ — X/Y/Z axis **or an arbitrary plane picked from 3 points on the model**; position slider + numeric input + flip; CPU mesh clipping (parallel, in the background), original geometry preserved (measurement stays exact)
 - **Units** — one-click mm ⇄ inch; existing measurements (list + 3D labels) convert live
+- **Language** — choose a language from **View → Language**; available languages come from the `i18n/` JSON files at startup, and your choice is remembered
 - **Export** — measurement results to CSV (UTF-8 BOM, no mojibake in Excel), a 2× PNG screenshot, and 📤 **STEP export**: writes all visible parts at their current aligned positions into a new STEP file (originals untouched)
 - **View** — right-button orbit, wheel zoom, middle-button pan, ViewCube; one-click **Iso / Front / Top / Right** views and an **orthographic ⇄ perspective** toggle
 - **Remembers your setup** — window size/position, unit choice and recent files persist across sessions; side panels are resizable
@@ -118,6 +119,7 @@ dotnet run --project tools/SmokeTest -- "path\to\model.stp"   # import + assembl
 dotnet run --project tools/SmokeTest -- --clip-test           # section clipping math
 dotnet run --project tools/SmokeTest -- --interference-test   # interference: intersect / separate / contact
 dotnet run --project tools/SmokeTest -- --align-test          # 3-point rigid-transform math
+dotnet run --project tools/SmokeTest -- --localization-test   # language resources and live switching
 dotnet run --project tools/SmokeTest -- --export-test in.stp out.stp  # STEP export round-trip
 ```
 
@@ -135,6 +137,24 @@ NuGet dependencies (restored automatically): `CADability`, `HelixToolkit.Wpf`, `
 
 ---
 
+## 🌐 Adding a Language
+
+The application scans `i18n/*.json` beside the executable at startup. Each file name without `.json` is the language ID (for example, `en.json` → `en`, `zh_cn.json` → `zh_cn`). The JSON root has a `key` for the name shown in the language menu and a `data` object that maps resource keys to translated text:
+
+```json
+{
+  "key": "Français",
+  "data": {
+    "Ui.Language": "Langue",
+    "Ui.Main.MenuImport": "📂 Importer…"
+  }
+}
+```
+
+Use `src/STPViewer/i18n/en.json` as the list of text keys, translate its `data` values, and save the new file as UTF-8 in `i18n/` beside the executable. Restart STPViewer to see the new language in the menu and Quick Bar. No recompilation is needed.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -145,6 +165,7 @@ STPViewer/
 ├── src/STPViewer/
 │   ├── STPViewer.csproj       # net8.0-windows, UseWPF, single-source <Version>
 │   ├── MainWindow.xaml / .cs   # Layout + mouse-pick forwarding
+│   ├── i18n/                  # Language JSON files copied beside the executable
 │   ├── Models/                 # FaceInfo, MeasureMode, MeasurementResult, UnitSystem
 │   ├── Services/               # StepImport, Measurement, Interference, Section, RigidAlign, Settings
 │   └── ViewModels/             # MainViewModel (partial: Drag/Gizmo/Section/Interference/Export), ModelNodeViewModel

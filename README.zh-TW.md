@@ -1,6 +1,6 @@
 # STPViewer
 
-[![English](https://img.shields.io/badge/English-lightgrey.svg)](README.md) [![繁體中文](https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-2ea043.svg)](README.zh-TW.md)
+[![English](https://img.shields.io/badge/English-lightgrey.svg)](README.md) [![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-lightgrey.svg)](README.zh-CN.md) [![繁體中文](https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-2ea043.svg)](README.zh-TW.md)
 
 > STP/STEP 3D 檢視器（Windows 桌面程式，C# .NET 8 WPF）— 多檔匯入、裝配樹、點/距離/邊/面/圓量測。
 
@@ -52,6 +52,7 @@
 - **干涉檢查** 🧩 — 2 個以上可見檔案**兩兩配對**檢查：相交時顯示紅色干涉交線 + 相交三角形對數；無相交時回報最小間隙 gap（gap≈0 即為配合 match，共面貼合不算干涉）
 - **剖面** ✂ — X/Y/Z 軸或**在模型上點 3 點定義任意平面**；位置滑桿 + 數值輸入 + 反向；CPU 網格裁切（背景平行運算），原始幾何保留（量測仍精確）
 - **單位** — mm ⇄ inch 一鍵切換，既有量測（清單與 3D 標籤）即時換算
+- **語言** — 從 **視圖 → 語言** 選擇語言；啟動時從 `i18n/` 的 JSON 檔案讀取可用語言，並記住選擇
 - **匯出** — 量測結果 CSV（UTF-8 BOM，Excel 中文不亂碼）、3D 視圖 2× PNG 截圖、📤 **STEP 匯出**：可見零件以目前對齊位置寫成新 STEP 檔（原始檔不動）
 - **視角** — 右鍵旋轉、滾輪縮放、中鍵平移、ViewCube；一鍵 **等角/前/上/右** 標準視圖與 **正交⇄透視** 切換
 - **記住設定** — 視窗位置大小、單位、最近檔案自動保存；左右面板可拖曳調寬
@@ -118,6 +119,7 @@ dotnet run --project tools/SmokeTest -- "path\to\model.stp"   # 匯入 + 裝配�
 dotnet run --project tools/SmokeTest -- --clip-test           # 剖切裁切數學
 dotnet run --project tools/SmokeTest -- --interference-test   # 干涉 相交/分離/貼合
 dotnet run --project tools/SmokeTest -- --align-test          # 三點對齊剛體變換數學
+dotnet run --project tools/SmokeTest -- --localization-test   # 語言資源與即時切換
 dotnet run --project tools/SmokeTest -- --export-test in.stp out.stp  # STEP 匯出往返驗證
 ```
 
@@ -135,6 +137,24 @@ NuGet 相依（自動還原）：`CADability`、`HelixToolkit.Wpf`、`CommunityT
 
 ---
 
+## 🌐 新增語言
+
+程式啟動時掃描執行檔旁的 `i18n/*.json`。檔名去掉 `.json` 後就是語言 ID，例如 `en.json` 對應 `en`，`zh_tw.json` 對應 `zh_tw`。JSON 頂層的 `key` 是語言選單中的顯示名稱，`data` 是資源鍵與譯文的對應：
+
+```json
+{
+  "key": "Français",
+  "data": {
+    "Ui.Language": "Langue",
+    "Ui.Main.MenuImport": "📂 Importer…"
+  }
+}
+```
+
+參考 `src/STPViewer/i18n/en.json` 的資源鍵，翻譯其 `data` 內容，將新檔案以 UTF-8 編碼放入執行檔旁的 `i18n/`。重啟 STPViewer 後，新語言便會出現在選單與快速列中，不需重新編譯。
+
+---
+
 ## 📁 專案結構
 
 ```
@@ -145,6 +165,7 @@ STPViewer/
 ├── src/STPViewer/
 │   ├── STPViewer.csproj       # net8.0-windows、UseWPF、單一版號來源 <Version>
 │   ├── MainWindow.xaml / .cs   # 版面 + 滑鼠拾取轉發
+│   ├── i18n/                  # 複製到執行檔旁的語言 JSON 檔
 │   ├── Models/                 # FaceInfo、MeasureMode、MeasurementResult、UnitSystem
 │   ├── Services/               # StepImport、Measurement、Interference、Section、RigidAlign、Settings
 │   └── ViewModels/             # MainViewModel（partial：Drag/Gizmo/Section/Interference/Export）、ModelNodeViewModel

@@ -2,8 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:STPViewer.ViewModels"
-        Title="匯出 STL — 參數設定"
-        Width="440" SizeToContent="Height"
+        xmlns:loc="clr-namespace:STPViewer.Localization"
+        Title="{loc:Loc Ui.StlExport.Title}"
+        Width="520" SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize" ShowInTaskbar="False"
         d:DataContext="{d:DesignInstance Type=vm:StlExportViewModel}"
@@ -38,38 +39,38 @@
             </Style>
         </Grid.Resources>
 
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="匯出範圍" />
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Ui.StlExport.Scope}" />
         <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding ScopeIndex}"
-                  ToolTip="STL 無裝配結構；合併 = 所有可見零件進同一檔">
-            <ComboBoxItem Content="全部可見檔案 → 合併成單一 STL" />
-            <ComboBoxItem Content="每個可見檔案 → 各一個 STL" />
+                  ToolTip="{loc:Loc Ui.StlExport.ScopeTooltip}">
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.ScopeMerge}" />
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.ScopePerFile}" />
         </ComboBox>
 
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="格式" />
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Ui.StlExport.Format}" />
         <ComboBox Grid.Row="1" Grid.Column="1" SelectedIndex="{Binding FormatIndex}">
-            <ComboBoxItem Content="Binary（建議，檔案小）" />
-            <ComboBoxItem Content="ASCII（文字可讀，檔案約 4 倍大）" />
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.FormatBinary}" />
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.FormatAscii}" />
         </ComboBox>
 
-        <TextBlock Grid.Row="2" Grid.Column="0" Text="單位縮放" />
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Ui.StlExport.UnitScale}" />
         <ComboBox Grid.Row="2" Grid.Column="1" SelectedIndex="{Binding UnitIndex}"
-                  ToolTip="STL 檔本身無單位；內部幾何為 mm，選 inch 會把座標 ÷25.4">
-            <ComboBoxItem Content="mm（1:1，預設）" />
-            <ComboBoxItem Content="inch（座標 ÷ 25.4）" />
-            <ComboBoxItem Content="自訂縮放係數…" />
+                  ToolTip="{loc:Loc Ui.StlExport.UnitTooltip}">
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.UnitMillimeter}" />
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.UnitInch}" />
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.UnitCustom}" />
         </ComboBox>
 
         <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding CustomScaleText, UpdateSourceTrigger=PropertyChanged}"
                  Margin="0,0,0,10" Padding="4,2"
                  Visibility="{Binding IsCustomScale, Converter={StaticResource BoolToVis}}"
-                 ToolTip="座標乘上此係數（例：0.001 = mm→m）" />
+                 ToolTip="{loc:Loc Ui.StlExport.CustomScaleTooltip}" />
 
-        <TextBlock Grid.Row="4" Grid.Column="0" Text="網格精度" />
+        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Ui.StlExport.MeshQuality}" />
         <ComboBox Grid.Row="4" Grid.Column="1" SelectedIndex="{Binding QualityIndex}"
                   IsEnabled="{Binding HasBrep}"
-                  ToolTip="精細會由 B-rep 重新三角化（僅 STEP 來源；STL/DXF 維持現有網格），大組件需要時間">
-            <ComboBoxItem Content="目前顯示網格（快，與畫面一致）" />
-            <ComboBoxItem Content="精細 — 重新三角化，曲面更平滑（慢、檔案大）" />
+                  ToolTip="{loc:Loc Ui.StlExport.QualityTooltip}">
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.QualityCurrent}" />
+            <ComboBoxItem Content="{loc:Loc Ui.StlExport.QualityFine}" />
         </ComboBox>
 
         <Border Grid.Row="5" Grid.ColumnSpan="2" Background="#F0F4F8" CornerRadius="4"
@@ -78,8 +79,8 @@
         </Border>
 
         <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="取消" Width="80" Margin="0,0,8,0" IsCancel="True" />
-            <Button Content="匯出…" Width="96" IsDefault="True"
+            <Button Content="{loc:Loc Ui.StlExport.Cancel}" Width="80" Margin="0,0,8,0" IsCancel="True" />
+            <Button Content="{loc:Loc Ui.StlExport.Export}" Width="96" IsDefault="True"
                     IsEnabled="{Binding CanConfirm}" Click="Confirm_Click" />
         </StackPanel>
     </Grid>

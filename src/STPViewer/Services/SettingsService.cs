@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace STPViewer.Services;
 
-/// <summary>使用者設定（%LOCALAPPDATA%\STPViewer\settings.json）</summary>
+/// <summary>User settings stored in %LOCALAPPDATA%\STPViewer\settings.json.</summary>
 public class AppSettings
 {
     public double WindowWidth { get; set; } = double.NaN;
@@ -14,13 +14,14 @@ public class AppSettings
     public double WindowTop { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; }
     public bool UseInch { get; set; }
+    public string? Language { get; set; }
     public List<string> RecentFiles { get; set; } = new();
 
-    /// <summary>快速工具列顯示的按鈕 key 清單；null = 用預設（QuickBarViewModel.Registry）</summary>
+    /// <summary>Visible quick bar keys; null uses registry defaults.</summary>
     public List<string>? QuickBarKeys { get; set; }
 }
 
-/// <summary>設定讀寫：壞檔/缺檔一律回預設值，儲存失敗靜默（設定不值得讓程式閃退）</summary>
+/// <summary>Loads defaults for missing or invalid settings and ignores save failures.</summary>
 public static class SettingsService
 {
     public const int MaxRecentFiles = 10;
@@ -36,7 +37,7 @@ public static class SettingsService
             if (File.Exists(SettingsPath))
                 return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings();
         }
-        catch { /* 壞檔回預設 */ }
+        catch { }
         return new AppSettings();
     }
 
@@ -48,6 +49,6 @@ public static class SettingsService
             File.WriteAllText(SettingsPath,
                 JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
         }
-        catch { /* 儲存失敗靜默 */ }
+        catch { }
     }
 }

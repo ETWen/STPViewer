@@ -6,8 +6,8 @@ using STPViewer.Models;
 namespace STPViewer.Converters;
 
 /// <summary>
-/// MeasureMode ↔ ToggleButton.IsChecked。
-/// ConverterParameter 為模式名稱字串；取消勾選時回到 None。
+/// Convert MeasureMode to ToggleButton.IsChecked using the mode name
+/// in ConverterParameter. Unchecking returns to None.
 /// </summary>
 public class EnumToBoolConverter : IValueConverter
 {

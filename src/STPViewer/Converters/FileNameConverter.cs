@@ -4,7 +4,7 @@ using System.Windows.Data;
 
 namespace STPViewer.Converters;
 
-/// <summary>完整路徑 → 檔名（選單「最近檔案」顯示用；tooltip 仍給完整路徑）</summary>
+/// <summary>Show file names in the recent-files menu while retaining full paths as tooltips.</summary>
 public class FileNameConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>

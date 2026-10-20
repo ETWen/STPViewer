@@ -6,16 +6,17 @@ using CADability;
 using CADability.GeoObject;
 using HelixToolkit.Wpf;
 using STPViewer.Models;
+using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.Services;
 
-/// <summary>角度量測的單次拾取：邊方向或面法向量</summary>
+/// <summary>One direction selected for angle measurement.</summary>
 public record DirectionPick(Point3D At, Vector3D Direction, string Desc);
 
 /// <summary>
-/// 點/距離/邊/面/圓/角度/面距 量測幾何計算 + 視圖 overlay 產生。
-/// 邊長、圓半徑以 B-rep 精確值為準；面積與面距用三角網格近似。
-/// 所有文字以 Func&lt;UnitSystem,string&gt; 延後產生，支援 mm/inch 即時切換。
+/// Computes measurements and their viewport overlays.
+/// B-rep provides exact edge lengths and radii; mesh values are approximate.
+/// Text is deferred so unit and language changes update existing results.
 /// </summary>
 public class MeasurementService
 {
@@ -29,13 +30,11 @@ public class MeasurementService
     private static GeoPoint ToGeo(Point3D p) => new(p.X, p.Y, p.Z);
     private static Point3D ToP3(GeoPoint p) => new(p.x, p.y, p.z);
 
-    // ─── 拾取輔助 ────────────────────────────────────────────────
+    // Picking
 
     /// <summary>
-    /// 命中點吸附：點到圓形邊附近（容差內）→ 吸附**圓心**（量兩孔 pitch 的關鍵，v0.5.0）；
-    /// 否則吸附最近的 B-rep 頂點（容差內）；都沒有 → 回傳原始表面點。
-    /// 圓心與頂點都在容差內時，比「命中點到圓形邊」與「命中點到頂點」誰近（圓弧端點常與圓重疊，
-    /// 點在圓邊上時圓心優先勝出才符合直覺）。
+    /// Snaps to the nearest vertex or circular edge within tolerance.
+    /// A circular edge snaps to its center for hole pitch measurements.
     /// </summary>
     public Point3D Snap(FaceInfo fi, Point3D hit, double tolerance)
     {
@@ -51,9 +50,9 @@ public class MeasurementService
                 if (d < bestD) { bestD = d; best = p; }
             }
         }
-        catch { /* 頂點存取失敗則不吸附 */ }
+        catch { }
 
-        // 圓形邊：以「命中點到邊曲線」的距離參與比較，勝出時吸附到圓心
+        // Compare distance to the circle edge before selecting its center.
         try
         {
             foreach (Edge e in fi.BrepFace.AllEdges)
@@ -67,19 +66,18 @@ public class MeasurementService
                 if (d < bestD) { bestD = d; best = ToP3(el.Center); }
             }
         }
-        catch { /* 邊存取失敗則維持頂點吸附結果 */ }
+        catch { }
         return best;
     }
 
     /// <summary>
-    /// 角度量測拾取：命中點附近有直線邊（容差內）→ 邊方向；
-    /// 否則取面法向量（B-rep 精確；無 B-rep 時用網格法向量）。
+    /// Uses a nearby straight edge for direction, otherwise a face normal.
     /// </summary>
     public DirectionPick PickDirection(FaceInfo fi, Point3D hit, Vector3D meshNormal, double tolerance)
     {
         if (fi.BrepFace is not null)
         {
-            // 1) 近距離直線邊優先
+            // Prefer a nearby straight edge.
             try
             {
                 foreach (Edge e in fi.BrepFace.AllEdges)
@@ -91,28 +89,28 @@ public class MeasurementService
                     {
                         Vector3D dir = ToP3(ln.EndPoint) - ToP3(ln.StartPoint);
                         dir.Normalize();
-                        return new DirectionPick(p, dir, "邊方向");
+                        return new DirectionPick(p, dir, "Runtime.DirectionEdge");
                     }
                 }
             }
             catch { }
 
-            // 2) 面法向量（精確）
+            // Use the B-rep face normal when available.
             try
             {
                 GeoPoint2D uv = fi.BrepFace.Surface.PositionOf(ToGeo(hit));
                 GeoVector n = fi.BrepFace.Surface.GetNormal(uv).Normalized;
-                return new DirectionPick(hit, new Vector3D(n.x, n.y, n.z), "面法向量");
+                return new DirectionPick(hit, new Vector3D(n.x, n.y, n.z), "Runtime.DirectionFace");
             }
             catch { }
         }
         Vector3D mn = meshNormal;
         if (mn.LengthSquared < 1e-12) mn = new Vector3D(0, 0, 1);
         mn.Normalize();
-        return new DirectionPick(hit, mn, "面法向量（網格）");
+        return new DirectionPick(hit, mn, "Runtime.DirectionMeshFace");
     }
 
-    // ─── 點 / 距離 ───────────────────────────────────────────────
+    // Point and distance
 
     public MeasurementResult MeasurePoint(Point3D p, string label, double markerR)
     {
@@ -134,8 +132,7 @@ public class MeasurementService
         {
             Kind = MeasureMode.Distance,
             TitleFor = u => $"{label}  {Units.L(d.Length, u)}",
-            DetailFor = u => $"距離 = {Units.L(d.Length, u)}\nΔX = {Units.L(d.X, u)}\nΔY = {Units.L(d.Y, u)}\nΔZ = {Units.L(d.Z, u)}\n" +
-                             $"P1 {Units.P(p1, u)}\nP2 {Units.P(p2, u)}",
+            DetailFor = u => Format("Runtime.DistanceDetail", Units.L(d.Length, u), Units.L(d.X, u), Units.L(d.Y, u), Units.L(d.Z, u), Units.P(p1, u), Units.P(p2, u)),
         };
         r.Overlays.Add(Sphere(p1, markerR));
         r.Overlays.Add(Sphere(p2, markerR));
@@ -149,9 +146,9 @@ public class MeasurementService
         return r;
     }
 
-    // ─── 邊 / 圓 ─────────────────────────────────────────────────
+    // Edge and circle
 
-    /// <summary>量測命中面上最近的邊。circlesOnly=true 時只找圓形邊。找不到回傳 null。</summary>
+    /// <summary>Measures the nearest edge, or the nearest circular edge when circlesOnly is true.</summary>
     public MeasurementResult? MeasureEdge(FaceInfo fi, Point3D hit, string label, double markerR, bool circlesOnly)
     {
         if (fi.BrepFace is null) return null;
@@ -193,9 +190,7 @@ public class MeasurementService
         {
             Kind = MeasureMode.Circle,
             TitleFor = u => $"{label}  ⌀{Units.L(radius * 2, u)}",
-            DetailFor = u => $"直徑 = {Units.L(radius * 2, u)}\n半徑 = {Units.L(radius, u)}\n" +
-                             $"{(full ? "周長" : "弧長")} = {Units.L(curveLen, u)}\n" +
-                             $"圓心 {Units.P(center, u)}",
+            DetailFor = u => Format("Runtime.CircleDetail", Units.L(radius * 2, u), Units.L(radius, u), Get(full ? "Runtime.Circumference" : "Runtime.ArcLength"), Units.L(curveLen, u), Units.P(center, u)),
         };
         r.Overlays.Add(Polyline(curve, HighlightColor, 3));
         r.Overlays.Add(Sphere(center, markerR));
@@ -219,8 +214,7 @@ public class MeasurementService
         {
             Kind = MeasureMode.Edge,
             TitleFor = u => $"{label}  L = {Units.L(len, u)}",
-            DetailFor = u => $"長度 = {Units.L(len, u)}\nΔX = {Units.C(d.X, u)}  ΔY = {Units.C(d.Y, u)}  ΔZ = {Units.C(d.Z, u)}\n" +
-                             $"起點 {Units.P(s, u)}\n終點 {Units.P(e, u)}",
+            DetailFor = u => Format("Runtime.LineDetail", Units.L(len, u), Units.C(d.X, u), Units.C(d.Y, u), Units.C(d.Z, u), Units.P(s, u), Units.P(e, u)),
         };
         r.Overlays.Add(new LinesVisual3D
         {
@@ -241,32 +235,32 @@ public class MeasurementService
         {
             Kind = MeasureMode.Edge,
             TitleFor = u => $"{label}  L = {Units.L(len, u)}",
-            DetailFor = u => $"曲線長 = {Units.L(len, u)}\n類型 = {typeName}",
+            DetailFor = u => Format("Runtime.CurveDetail", Units.L(len, u), typeName),
         };
         r.Overlays.Add(Polyline(curve, HighlightColor, 3));
         AddLabel(r, ToP3(curve.PointAt(0.5)) + new Vector3D(0, 0, markerR * 2), u => $"L={Units.L(len, u)}");
         return r;
     }
 
-    // ─── 面 ──────────────────────────────────────────────────────
+    // Face
 
     public MeasurementResult MeasureFace(FaceInfo fi, Point3D hit, string label, double markerR)
     {
-        // 面積：三角網格加總（近似值，三角化精度內）
+        // Area is estimated from the triangle mesh.
         double area = MeshArea(fi.Mesh);
         int triCount = fi.Mesh.TriangleIndices.Count / 3;
         Func<UnitSystem, string> surfaceDesc = fi.BrepFace is not null
             ? DescribeSurface(fi.BrepFace.Surface)
-            : _ => "類型 = 網格（無 B-rep）";
+            : _ => Get("Runtime.MeshSurface");
 
         var r = new MeasurementResult
         {
             Kind = MeasureMode.Face,
             TitleFor = u => $"{label}  A ≈ {Units.A(area, u)}",
-            DetailFor = u => $"面積 ≈ {Units.A(area, u)}（網格近似）\n{surfaceDesc(u)}\n三角形數 = {triCount:N0}",
+            DetailFor = u => Format("Runtime.FaceDetail", Units.A(area, u), surfaceDesc(u), triCount),
         };
 
-        // overlay：外輪廓 highlight + 標籤
+        // Highlight the outer edges and add a label.
         if (fi.BrepFace is not null)
         {
             try
@@ -302,35 +296,33 @@ public class MeasurementService
             case PlaneSurface ps:
             {
                 GeoVector n = ps.Normal.Normalized;
-                string desc = $"類型 = 平面\n法向量 ({n.x:F3}, {n.y:F3}, {n.z:F3})";
-                return _ => desc;
+                return _ => Format("Runtime.PlaneSurface", n.x, n.y, n.z);
             }
             case CylindricalSurface cs:
             {
                 GeoVector ax = cs.Axis.Normalized;
                 double radius = cs.RadiusX;
-                return u => $"類型 = 圓柱面\n半徑 = {Units.L(radius, u)}\n軸向 ({ax.x:F3}, {ax.y:F3}, {ax.z:F3})";
+                return u => Format("Runtime.CylinderSurface", Units.L(radius, u), ax.x, ax.y, ax.z);
             }
             default:
             {
-                string desc = $"類型 = {SurfaceTypeName(surface)}";
-                return _ => desc;
+                return _ => Format("Runtime.SurfaceType", SurfaceTypeName(surface));
             }
         }
     }
 
     private static string SurfaceTypeName(ISurface s) => s.GetType().Name switch
     {
-        "SphericalSurface" => "球面",
-        "ToroidalSurface" => "環面",
-        "ConicalSurface" => "圓錐面",
-        "NurbsSurface" => "NURBS 曲面",
-        "SurfaceOfRevolution" => "旋轉曲面",
-        "SurfaceOfLinearExtrusion" => "拉伸曲面",
+        "SphericalSurface" => Get("Runtime.SphericalSurface"),
+        "ToroidalSurface" => Get("Runtime.ToroidalSurface"),
+        "ConicalSurface" => Get("Runtime.ConicalSurface"),
+        "NurbsSurface" => Get("Runtime.NurbsSurface"),
+        "SurfaceOfRevolution" => Get("Runtime.RevolutionSurface"),
+        "SurfaceOfLinearExtrusion" => Get("Runtime.ExtrusionSurface"),
         var other => other,
     };
 
-    // ─── 角度（兩面 / 兩邊夾角）─────────────────────────────────
+    // Angle
 
     public MeasurementResult MeasureAngle(DirectionPick a, DirectionPick b, string label, double markerR, double arrowLen)
     {
@@ -343,10 +335,7 @@ public class MeasurementService
         {
             Kind = MeasureMode.Angle,
             TitleFor = _ => $"{label}  ∠ {deg:F2}°",
-            DetailFor = _ => $"夾角 = {deg:F2}°（補角 {comp:F2}°）\n" +
-                             $"方向 1：{a.Desc} ({a.Direction.X:F3}, {a.Direction.Y:F3}, {a.Direction.Z:F3})\n" +
-                             $"方向 2：{b.Desc} ({b.Direction.X:F3}, {b.Direction.Y:F3}, {b.Direction.Z:F3})\n" +
-                             "（兩面夾角以法向量計，互補角請參考補角值）",
+            DetailFor = _ => Format("Runtime.AngleDetail", deg, comp, Get(a.Desc), a.Direction.X, a.Direction.Y, a.Direction.Z, Get(b.Desc), b.Direction.X, b.Direction.Y, b.Direction.Z),
         };
         r.Overlays.Add(Sphere(a.At, markerR));
         r.Overlays.Add(Sphere(b.At, markerR));
@@ -368,7 +357,7 @@ public class MeasurementService
         Thickness = 2,
     };
 
-    // ─── 面到面最短距離（網格近似）──────────────────────────────
+    // Face distance
 
     public MeasurementResult MeasureFaceDistance(FaceInfo a, FaceInfo b, string label, double markerR)
     {
@@ -378,9 +367,7 @@ public class MeasurementService
         {
             Kind = MeasureMode.FaceDistance,
             TitleFor = u => $"{label}  min = {Units.L(d.Length, u)}",
-            DetailFor = u => $"最短距離 ≈ {Units.L(d.Length, u)}（網格近似）\n" +
-                             $"ΔX = {Units.L(d.X, u)}\nΔY = {Units.L(d.Y, u)}\nΔZ = {Units.L(d.Z, u)}\n" +
-                             $"點 1 {Units.P(pa, u)}\n點 2 {Units.P(pb, u)}",
+            DetailFor = u => Format("Runtime.FaceDistanceDetail", Units.L(d.Length, u), Units.L(d.X, u), Units.L(d.Y, u), Units.L(d.Z, u), Units.P(pa, u), Units.P(pb, u)),
         };
         r.Overlays.Add(Sphere(pa, markerR));
         r.Overlays.Add(Sphere(pb, markerR));
@@ -394,7 +381,7 @@ public class MeasurementService
         return r;
     }
 
-    /// <summary>兩網格最近點對：頂點→三角形雙向（頂點過多時抽樣，結果為近似值）</summary>
+    /// <summary>Approximates the closest points by probing vertices against triangles in both directions.</summary>
     private static (Point3D a, Point3D b) MeshMinDistance(MeshGeometry3D ma, MeshGeometry3D mb)
     {
         double best = double.MaxValue;
@@ -427,19 +414,18 @@ public class MeasurementService
         return (pa, pb);
     }
 
-    // ─── 體積 / 質心（封閉網格 signed volume）────────────────────
+    // Volume and centroid
 
     /// <summary>
-    /// 網格體積與質心：各三角形與原點構成的四面體有向體積加總（divergence theorem）。
-    /// 只對「封閉」網格有意義（開放殼會得到不可靠的值 → IsClosedReliable=false 供呼叫端提示）。
-    /// 多個 mesh（多實體）直接加總。
+    /// Computes signed volume and centroid from origin-based tetrahedra.
+    /// The result is reliable only for closed meshes.
     /// </summary>
     public static (double VolumeMm3, Point3D Centroid, bool Reliable) MeshVolume(
         System.Collections.Generic.IEnumerable<MeshGeometry3D> meshes)
     {
-        double vol6 = 0;                       // Σ 6×有向體積
-        double absVol6 = 0;                    // Σ |6×有向體積|（封閉性 sanity check 用）
-        double cx = 0, cy = 0, cz = 0;         // Σ 四面體質心 × 6×有向體積
+        double vol6 = 0;
+        double absVol6 = 0;
+        double cx = 0, cy = 0, cz = 0;
         foreach (MeshGeometry3D mesh in meshes)
         {
             Point3DCollection pos = mesh.Positions;
@@ -453,14 +439,14 @@ public class MeasurementService
                          + a.Z * (b.X * c.Y - b.Y * c.X);
                 vol6 += v;
                 absVol6 += Math.Abs(v);
-                // 四面體（a,b,c,原點）質心 = (a+b+c)/4
+                // Tetrahedron centroid = (a + b + c) / 4.
                 cx += (a.X + b.X + c.X) / 4 * v;
                 cy += (a.Y + b.Y + c.Y) / 4 * v;
                 cz += (a.Z + b.Z + c.Z) / 4 * v;
             }
         }
         double volume = Math.Abs(vol6) / 6;
-        // 有向體積相對正負抵銷比例過高 → 可能是開放殼/法向不一致，數值不可靠
+        // Large signed cancellation suggests an open mesh or inconsistent normals.
         bool reliable = absVol6 > 0 && Math.Abs(vol6) / absVol6 > 0.01 && volume > 1e-9;
         Point3D centroid = Math.Abs(vol6) > 1e-12
             ? new Point3D(cx / vol6, cy / vol6, cz / vol6)
@@ -468,7 +454,7 @@ public class MeasurementService
         return (volume, centroid, reliable);
     }
 
-    // 點到三角形最近點：共用 InterferenceService.ClosestPointOnTriangle（v0.4.0 去重複）
+    // Shares the triangle closest-point calculation with InterferenceService.
 
     // ─── overlay helpers ─────────────────────────────────────────
 

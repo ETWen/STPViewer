@@ -7,23 +7,23 @@ using HelixToolkit.Wpf;
 namespace STPViewer.Models;
 
 /// <summary>
-/// 一筆量測結果。內部以 mm 儲存原始值，Title/Detail 依目前單位即時產生；
-/// 切換單位時 3D 標籤（DynamicLabels）也同步改字。
+/// A measurement stored in millimeters. Its title, details, and 3D labels
+/// update when the display unit changes.
 /// </summary>
 public class MeasurementResult : ObservableObject
 {
     public MeasureMode Kind { get; init; }
 
-    /// <summary>依單位產生標題（清單粗體列）</summary>
+    /// <summary>Create the list title for a display unit.</summary>
     public required Func<UnitSystem, string> TitleFor { get; init; }
 
-    /// <summary>依單位產生多行明細</summary>
+    /// <summary>Create the detailed text for a display unit.</summary>
     public required Func<UnitSystem, string> DetailFor { get; init; }
 
-    /// <summary>視圖中的標記（刪除量測時一併移除）</summary>
+    /// <summary>View markers removed with this measurement.</summary>
     public List<Visual3D> Overlays { get; } = new();
 
-    /// <summary>單位相關的 3D 文字標籤（切換單位時更新 Text）</summary>
+    /// <summary>3D labels whose text changes with the display unit.</summary>
     public List<(BillboardTextVisual3D Label, Func<UnitSystem, string> TextFor)> DynamicLabels { get; } = new();
 
     private UnitSystem _unit = UnitSystem.Millimeter;
@@ -35,9 +35,14 @@ public class MeasurementResult : ObservableObject
     {
         if (_unit == unit) return;
         _unit = unit;
+        RefreshText();
+    }
+
+    public void RefreshText()
+    {
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Detail));
         foreach ((BillboardTextVisual3D label, Func<UnitSystem, string> textFor) in DynamicLabels)
-            label.Text = textFor(unit);
+            label.Text = textFor(_unit);
     }
 }

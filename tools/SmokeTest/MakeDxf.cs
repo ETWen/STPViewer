@@ -1,4 +1,4 @@
-// 測試輔助：用 CADability 內嵌的 netDxf 產生標準 DXF 測試檔
+// Generate a small standard DXF test file with the bundled netDxf library.
 using netDxf;
 using netDxf.Entities;
 
@@ -12,6 +12,6 @@ internal static class MakeDxf
         doc.Entities.Add(new Line(new Vector3(0, 0, 0), new Vector3(100, 50, 0)));
         doc.Entities.Add(new Circle(new Vector3(50, 25, 0), 10));
         doc.Save(path);
-        Console.WriteLine($"已產生 {path}");
+        Console.WriteLine($"Generated {path}");
     }
 }

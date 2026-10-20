@@ -4,42 +4,41 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HelixToolkit.Wpf;
+using static STPViewer.Services.LocalizationService;
 
 namespace STPViewer.ViewModels;
 
-// ─── Gizmo 三軸操作器（XYZ 箭頭 + 旋轉環；每次放開滑鼠烘進 B-rep）──────
+// Gizmo translation and rotation
 public partial class MainViewModel
 {
     [ObservableProperty]
     private bool gizmoEnabled;
 
     private readonly List<HelixToolkit.Wpf.Manipulator> _gizmoParts = new();
-    private ModelVisual3D? _gizmoProxy;        // 操作器綁定的代理 visual（其 Transform = 使用者拖出的變換）
+    private ModelVisual3D? _gizmoProxy;
     private ModelNodeViewModel? _gizmoTarget;
-    private bool _gizmoDragActive;             // 拖動中（邊線已暫停）
-    private bool _gizmoBaking;                 // 烘焙中，忽略 Transform 變更回呼
-    private bool _gizmoBakePending;            // 已排程烘焙，防同一次放開重複觸發
+    private bool _gizmoDragActive;
+    private bool _gizmoBaking;
+    private bool _gizmoBakePending;
 
-    // 操作器疊圖層：另一個透明 Viewport3D 疊在主視窗上、相機同步、只放操作器 →
-    // 操作器不在主場景，永不被實體遮擋（always-on-top）；空白處滑鼠穿透回主視窗
+    // A synchronized overlay viewport keeps the gizmo above scene geometry.
     private System.Windows.Controls.Viewport3D? _overlayViewport;
-    private ProjectionCamera? _overlayCamera; // 型別跟隨主相機（透視/正交切換，v0.5.0）
+    private ProjectionCamera? _overlayCamera;
 
-    /// <summary>注入操作器疊圖層（透明 Viewport3D，疊在主視窗上、永遠最上層）</summary>
+    /// <summary>Attaches the transparent gizmo overlay viewport.</summary>
     public void AttachOverlay(System.Windows.Controls.Viewport3D overlay)
     {
         _overlayViewport = overlay;
         _overlayCamera = new PerspectiveCamera();
         overlay.Camera = _overlayCamera;
-        // 操作器材質需打光（manipulator 用 DiffuseMaterial）
+        // Manipulator materials need lighting.
         overlay.Children.Add(new ModelVisual3D { Content = new AmbientLight(Color.FromRgb(0x80, 0x80, 0x80)) });
         overlay.Children.Add(new ModelVisual3D { Content = new DirectionalLight(Colors.White, new Vector3D(-1, -1, -3)) });
         SyncOverlayCamera();
     }
 
     /// <summary>
-    /// 疊圖層相機跟隨主相機（每次主相機變更時呼叫，讓操作器疊在正確螢幕位置）。
-    /// 主相機可能在透視/正交間切換（Orthographic 屬性）→ 疊圖層相機「型別」也要跟著換，投影才一致。
+    /// Keeps the overlay camera in sync with the main camera and projection mode.
     /// </summary>
     private void SyncOverlayCamera()
     {
@@ -78,7 +77,7 @@ public partial class MainViewModel
 
     partial void OnSelectedNodeChanged(ModelNodeViewModel? value)
     {
-        if (GizmoEnabled) UpdateGizmo(); // 換選取 → 操作器跟著換目標
+        if (GizmoEnabled) UpdateGizmo();
     }
 
     private void UpdateGizmo()
@@ -90,12 +89,12 @@ public partial class MainViewModel
             : Roots.Count == 1 ? Roots[0] : null;
         if (root is null || root.Bounds.IsEmpty)
         {
-            StatusText = "操作器：請先在樹面板點選要操作的檔案";
+            SetStatus(() => Get("Runtime.GizmoSelectFile"));
             GizmoEnabled = false;
             return;
         }
         _gizmoTarget = root;
-        SyncOverlayCamera(); // 操作器出現前先對齊相機
+        SyncOverlayCamera();
 
         Rect3D b = root.Bounds;
         var center = new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
@@ -112,18 +111,18 @@ public partial class MainViewModel
             man.Position = center;
             man.Bind(_gizmoProxy);
             _gizmoParts.Add(man);
-            _overlayViewport!.Children.Add(man); // 放疊圖層 → 永不被實體遮擋
+            _overlayViewport!.Children.Add(man);
         }
-        // 平移箭頭（X 紅 / Y 綠 / Z 藍 — 業界慣例）
+        // Translation arrows: X red, Y green, Z blue.
         AddPart(new TranslateManipulator { Direction = new Vector3D(1, 0, 0), Color = Colors.Red,   Length = diag * 0.22, Diameter = diag * 0.016 });
         AddPart(new TranslateManipulator { Direction = new Vector3D(0, 1, 0), Color = Colors.Green, Length = diag * 0.22, Diameter = diag * 0.016 });
         AddPart(new TranslateManipulator { Direction = new Vector3D(0, 0, 1), Color = Colors.Blue,  Length = diag * 0.22, Diameter = diag * 0.016 });
-        // 旋轉環
+        // Rotation rings
         AddPart(new RotateManipulator { Axis = new Vector3D(1, 0, 0), Color = Colors.Red,   Diameter = diag * 0.34, InnerDiameter = diag * 0.30, Length = diag * 0.012 });
         AddPart(new RotateManipulator { Axis = new Vector3D(0, 1, 0), Color = Colors.Green, Diameter = diag * 0.34, InnerDiameter = diag * 0.30, Length = diag * 0.012 });
         AddPart(new RotateManipulator { Axis = new Vector3D(0, 0, 1), Color = Colors.Blue,  Diameter = diag * 0.34, InnerDiameter = diag * 0.30, Length = diag * 0.012 });
 
-        StatusText = $"操作器：拖箭頭沿軸移動「{root.Name}」、拖環繞軸旋轉；放開即定位";
+        SetStatus(() => Format("Runtime.GizmoHint", root.Name));
     }
 
     private void RemoveGizmo()
@@ -143,7 +142,7 @@ public partial class MainViewModel
         _gizmoParts.Clear();
         _gizmoProxy = null;
 
-        if (_gizmoTarget is not null) // 清掉殘留的暫時 Transform（用 Identity，不可 null → 否則 FindHits crash）
+        if (_gizmoTarget is not null)
             foreach (ModelNodeViewModel l in _gizmoTarget.Leaves())
                 if (l.BodyVisual is not null)
                     l.BodyVisual.Transform = Transform3D.Identity;
@@ -156,7 +155,7 @@ public partial class MainViewModel
         }
     }
 
-    /// <summary>操作器拖動中：把代理的 Transform 套到目標檔案的所有 BodyVisual（暫時、GPU 端）</summary>
+    /// <summary>Applies the proxy transform to target visuals during dragging.</summary>
     private void GizmoTransformChanged(object? sender, EventArgs e)
     {
         if (_gizmoBaking || _gizmoTarget is null || _gizmoProxy is null) return;
@@ -165,21 +164,21 @@ public partial class MainViewModel
         {
             _gizmoDragActive = true;
             _edgesSuspended = true;
-            SetEdgesActive(false); // 邊線逐幀重建會卡，拖動中暫停
+            SetEdgesActive(false);
         }
         foreach (ModelNodeViewModel l in _gizmoTarget.Leaves())
             if (l.BodyVisual is not null)
                 l.BodyVisual.Transform = t;
     }
 
-    /// <summary>滑鼠放開（MainWindow 轉發，handledEventsToo）：把累積變換烘進 B-rep 並重置操作器</summary>
+    /// <summary>Commits the accumulated transform and resets the gizmo on mouse release.</summary>
     public void OnGizmoMouseUp()
     {
         if (_gizmoTarget is null || _gizmoProxy is null || _gizmoBakePending) return;
         Matrix3D m = _gizmoProxy.Transform?.Value ?? Matrix3D.Identity;
-        if (m.IsIdentity) return; // 只是點一下、沒拖操作器 → 不烘焙
+        if (m.IsIdentity) return;
 
-        // 延後到 manipulator 自身的 mouse-up 處理（釋放捕捉等）完成後再烘焙，避免在其事件中改動視覺樹造成 reentrancy
+        // Commit after the manipulator completes its mouse-up handling.
         _gizmoBakePending = true;
         _viewport?.Dispatcher.BeginInvoke(new Action(() => BakeGizmo(m)),
             System.Windows.Threading.DispatcherPriority.Background);
@@ -191,19 +190,19 @@ public partial class MainViewModel
         if (_gizmoTarget is null) return;
         ModelNodeViewModel root = _gizmoTarget;
 
-        _gizmoBaking = true; // 防 proxy 歸零觸發 GizmoTransformChanged 重入
+        _gizmoBaking = true;
         foreach (ModelNodeViewModel l in root.Leaves())
             if (l.BodyVisual is not null)
-                l.BodyVisual.Transform = Transform3D.Identity; // 清暫時位移（用 Identity，不可 null）
-        if (_gizmoProxy is not null) _gizmoProxy.Transform = Transform3D.Identity; // 綁定 → 操作器歸零
+                l.BodyVisual.Transform = Transform3D.Identity;
+        if (_gizmoProxy is not null) _gizmoProxy.Transform = Transform3D.Identity;
         _gizmoBaking = false;
         _gizmoDragActive = false;
         _edgesSuspended = false;
         SetEdgesActive(true);
 
-        TransformRoot(root, Services.RigidAlign.ToModOp(m), m); // 烘進 B-rep（量測精度不受影響）
+        TransformRoot(root, Services.RigidAlign.ToModOp(m), m);
 
-        // 操作器移到變換後的新中心
+        // Move the gizmo to the transformed center.
         Rect3D b = root.Bounds;
         if (!b.IsEmpty)
         {
@@ -211,6 +210,6 @@ public partial class MainViewModel
             foreach (HelixToolkit.Wpf.Manipulator man in _gizmoParts)
                 man.Position = center;
         }
-        StatusText = $"已套用操作器變換「{root.Name}」（可用 🧩干涉 驗證）";
+        SetStatus(() => Format("Runtime.GizmoApplied", root.Name));
     }
 }

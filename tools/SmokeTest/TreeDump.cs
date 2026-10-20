@@ -1,4 +1,4 @@
-// 實驗工具：印出 STEP 匯入後的物件階層（HierarchyToBlocks=true）
+// Print the STEP object hierarchy after import with HierarchyToBlocks enabled.
 using CADability;
 using CADability.GeoObject;
 

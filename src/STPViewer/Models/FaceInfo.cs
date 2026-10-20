@@ -4,13 +4,13 @@ using STPViewer.ViewModels;
 
 namespace STPViewer.Models;
 
-/// <summary>渲染物件（GeometryModel3D）反查 B-rep Face 的對照資料</summary>
+/// <summary>Maps a rendered GeometryModel3D back to a B-rep face.</summary>
 public class FaceInfo
 {
-    /// <summary>B-rep 面；STL 等純網格來源為 null（僅支援點/距離/面距量測）</summary>
+    /// <summary>B-rep face, or null for mesh-only sources such as STL.</summary>
     public Face? BrepFace { get; init; }
 
-    /// <summary>原始（未剖切）三角網格 — 面積計算與剖面還原用；零件平移後會換成新 mesh</summary>
+    /// <summary>Uncut mesh used for area and section restoration; replaced after translation.</summary>
     public required MeshGeometry3D Mesh { get; set; }
 
     public required ModelNodeViewModel Owner { get; init; }

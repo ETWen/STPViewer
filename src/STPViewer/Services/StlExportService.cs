@@ -11,27 +11,22 @@ using CADability.GeoObject;
 namespace STPViewer.Services;
 
 /// <summary>
-/// 網格精度：Current = 目前顯示網格；Fine = 由 B-rep 以較細精度重新三角化（無 B-rep 的來源維持現有網格）。
-/// 不提供「較粗」：CADability 的 GetTriangulation 對「比快取粗」的精度要求會直接回傳既有較細快取，
-/// 匯入時已三角化過 → 要求粗化實際上拿到同一份網格（實測驗證），故誠實不提供。
+/// Mesh quality: Current uses the displayed mesh; Fine retessellates B-rep geometry.
 /// </summary>
 public enum StlMeshQuality { Current, Fine }
 
 /// <summary>
-/// STL 匯出：WPF 三角網格 → binary / ASCII STL。
-/// STL 本身無單位，約定輸出 mm（scale=1）；inch 交接用 scale = 1/25.4。
+/// Writes WPF triangle meshes as binary or ASCII STL; scale=1 uses millimeters.
 /// </summary>
 public static class StlExportService
 {
     /// <summary>
-    /// 三角化精度係數（相對匯入預設）：Fine 較細（三角形多、曲面平滑）。
-    /// 實測 CADability 三角形數對精度非單調（0.4× 重算反而比 1× 少 — 重算網格較有效率），
-    /// 要明顯更細需 ≤0.15×（test.stp：1× = 30,784 → 0.1× = 42,220 三角形）。
+    /// Tessellation factor relative to import precision; 0.15 produces a finer mesh.
     /// </summary>
     public static double PrecisionFactor(StlMeshQuality q) =>
         q == StlMeshQuality.Fine ? 0.15 : 1.0;
 
-    /// <summary>預估檔案大小：binary = 84 + 50×n；ASCII 每三角形約 230 bytes</summary>
+    /// <summary>Estimated file size: 84 + 50 bytes per binary triangle, about 230 per ASCII triangle.</summary>
     public static long EstimateBytes(long triangles, bool ascii) =>
         ascii ? 20 + triangles * 230 : 84 + triangles * 50;
 
@@ -44,8 +39,7 @@ public static class StlExportService
     };
 
     /// <summary>
-    /// 把多個網格寫成一個 STL 檔。退化（零面積）三角形濾除。
-    /// 回傳實際寫出的三角形數。
+    /// Writes meshes to one STL file, skipping zero-area triangles. Returns the triangle count.
     /// </summary>
     public static int Write(string path, IReadOnlyList<MeshGeometry3D> meshes, bool ascii, double scale) =>
         ascii ? WriteAscii(path, meshes, scale) : WriteBinary(path, meshes, scale);
@@ -55,11 +49,11 @@ public static class StlExportService
         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
         using var bw = new BinaryWriter(fs);
 
-        // 80-byte header（不可以 "solid" 開頭，部分讀取器會誤判為 ASCII）
+        // Avoid "solid" in the header; some readers would mistake it for ASCII.
         var header = new byte[80];
         Encoding.ASCII.GetBytes("STPViewer binary STL (unit: mm x scale)").CopyTo(header, 0);
         bw.Write(header);
-        bw.Write(0u); // 三角形數 placeholder，寫完回頭補
+        bw.Write(0u); // Backfilled after writing triangles.
 
         int count = 0;
         foreach (MeshGeometry3D mesh in meshes)
@@ -69,7 +63,7 @@ public static class StlExportService
             for (int i = 0; i + 2 < idx.Count; i += 3)
             {
                 Point3D a = pos[idx[i]], b = pos[idx[i + 1]], c = pos[idx[i + 2]];
-                if (!TryNormal(a, b, c, out Vector3D n)) continue; // 退化三角形
+                if (!TryNormal(a, b, c, out Vector3D n)) continue;
                 bw.Write((float)n.X); bw.Write((float)n.Y); bw.Write((float)n.Z);
                 WriteVertex(bw, a, scale);
                 WriteVertex(bw, b, scale);
@@ -125,7 +119,7 @@ public static class StlExportService
         sw.WriteLine(string.Format(inv, "      vertex {0:e6} {1:e6} {2:e6}",
             p.X * scale, p.Y * scale, p.Z * scale));
 
-    /// <returns>false = 退化三角形（面積 ≈ 0）</returns>
+    /// <returns>False for a zero-area triangle.</returns>
     private static bool TryNormal(Point3D a, Point3D b, Point3D c, out Vector3D n)
     {
         n = Vector3D.CrossProduct(b - a, c - a);
@@ -135,12 +129,11 @@ public static class StlExportService
         return true;
     }
 
-    // ─── B-rep 重新三角化（精細/較粗匯出用）────────────────────────
+    // B-rep retessellation
 
     /// <summary>
-    /// 由 B-rep 幾何以指定精度係數重新三角化，回傳每面一個 frozen mesh。
-    /// CADability 非執行緒安全 → 呼叫端維持循序（可在單一背景執行緒）。
-    /// 個別面三角化失敗時跳過（與匯入一致的容錯策略）。
+    /// Retessellates B-rep geometry into frozen meshes, one per face.
+    /// Call sequentially because CADability tessellation is not thread-safe.
     /// </summary>
     public static List<MeshGeometry3D> Tessellate(IEnumerable<IGeoObject> geos, double precisionFactor)
     {
@@ -170,9 +163,7 @@ public static class StlExportService
     }
 
     /// <summary>
-    /// 匯入預設精度（與 StepImportService.PrecisionFor 同款 clamp）再乘 factor —
-    /// 先 clamp 再乘，保證 factor&lt;1 時嚴格比匯入快取細（否則大殼在匯入被 0.5 上限截住，
-    /// 直接乘在 clamp 前會算出比快取粗的值 → CADability 回傳快取、精細無效）。
+    /// Clamp the import precision before applying factor so Fine is finer than the cached mesh.
     /// </summary>
     private static double PrecisionFor(BoundingCube bc, double factor)
     {
