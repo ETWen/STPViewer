@@ -5,7 +5,7 @@
 CAD 3D 檢視器（Windows 桌面 WPF, .NET 8）：STEP/STL/DXF 匯入、STEP 裝配樹（搜尋/隔離顯示）、
 點/距離/邊/面/圓/角度/面距/體積質心量測（吸附含圓心）、兩點對齊（平移）、三點對齊（旋轉+平移）、
 軸向旋轉 90°、拖曳模式、干涉檢查（≥2 檔兩兩配對）、剖面（X/Y/Z + 3點任意平面）、
-標準視圖+正交投影、量測快速鍵+Esc、mm⇄inch、CSV/截圖/STEP/STL 匯出（STL 有參數對話框）、設定與 MRU 保存。
+標準視圖+正交投影、量測快速鍵+Esc、mm⇄inch、多語系（英/繁/簡，執行期語言包）、CSV/截圖/STEP/STL 匯出（STL 有參數對話框）、設定與 MRU 保存。
 詳細設計見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 技術棧
@@ -49,8 +49,8 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   （樹搜尋框、剖面數值框要能打字），新增輸入控件不用再各自處理
 - UI 三層（v0.7.0）：**選單列**（全部功能，分類下拉）+ **快速列**（`QuickBarViewModel` 註冊表，
   使用者勾選常用按鈕，XAML 索引子綁定 `QuickBar[Key].IsChecked` 控 Visibility，按鈕本體維持靜態綁定）+
-  **剖面參數列**（只在 SectionEnabled 顯示）。新增功能要三處都接：選單分類、快速列註冊表
-  （含預設值）+ 對應 XAML 按鈕；勾選清單存 settings.json `QuickBarKeys`（null = 預設）
+  **剖面參數列**（只在 SectionEnabled 顯示）。新增功能要四處都接：選單分類、快速列註冊表
+  （含預設值）+ 對應 XAML 按鈕、**三個語言包的文字 key**；勾選清單存 settings.json `QuickBarKeys`（null = 預設）
 - 使用者設定 `SettingsService`（%LOCALAPPDATA%\STPViewer\settings.json）：視窗（MainWindow 管）+
   單位/MRU（VM `LoadSettings`/`SaveSettingsInto`）；壞檔回預設、儲存失敗靜默
 - 匯出 STEP 走 `CADability.ExportStep.WriteToFile(file, Project.CreateSimpleProject()+Model.Add)`；
@@ -65,6 +65,13 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   OnViewportClick 最前面攔點擊）；換軸/關剖面/Esc 會重置。平面位置一律用「AABB 8 角投影到法向」內插，
   軸向與任意法向共用同一段程式，不要改回逐軸特化
 - 量測文字一律 `Func<UnitSystem,string>` 延後產生（mm⇄inch 即時切換）；內部數值永遠存 mm
+- 🌐 **多語系（v0.8.0，PR #1 by @CarmJos）**：介面文字**一律走 key，不可寫死字串**。語言包 `src/STPViewer/i18n/{en,zh_tw,zh_cn}.json`
+  （`key` = 選單顯示名、`data` = key → 譯文；建置時複製到 exe 旁，啟動掃描，加檔即新增語言免重編）。
+  XAML 用 `{loc:Loc Ui.Xxx}`；程式用 `LocalizationService.Get(key)` / `Format(key, args)`；
+  狀態列用 `SetStatus(() => Get(...))`（延後產生，切語言時 `RefreshLocalizedText()` 重算 — 直接設 `StatusText` 切語言不會更新）。
+  新增文字 key **三個 json 都要加**（`en.json` 是 key 清單正本；缺字執行期回退英文、再缺顯示 key 本身）。
+  key 命名：`Ui.Main.*`（主視窗）/ `Ui.StlExport.*` / `Ui.About.*` / `QuickBar.*` / `Runtime.*`（狀態列訊息）/ `App.*`。
+  選用語言存 settings.json `Language`（null = 依系統 UI 語系）。**程式碼註解維持中文**（設計理由與「不要改回 X」都寫在註解，勿精簡掉）
 - 裝配樹節點（`ModelNodeViewModel`）的可見性/邊線/顏色向下 cascade
 - 剖面只換 `GeometryModel3D.Geometry`（`FaceInfo.Mesh` 保留原始 frozen mesh 供還原與量測）
 - ⚡ 剖面裁切是**背景平行**（v0.4.0）：`ApplySection` 在 UI 快照 (model, frozen mesh) → `Task.Run`+`Parallel.For`
@@ -98,7 +105,8 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
 - 干涉/面距/對齊等運算在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - 匯入在背景執行緒；`Freeze()` 幾何後才跨執行緒
 - 發新版：升 csproj `<Version>` 之外，記得在 `AboutDialog.xaml.cs` 的 `Changelog` 陣列**頂端**加一筆
-  （口吻寫給一般使用者：「你會感覺到什麼」，不是技術 changelog）。
+  （口吻寫給一般使用者：「你會感覺到什麼」，不是技術 changelog）。v0.8.0 起內容是 key
+  （`Ui.About.ReleaseXYZ.Title` / `.ChangeN`），**三個語言包都要寫**。
   ⚠️ WPF **頂層 MenuItem 直接掛 Click 不會觸發**（實測滑鼠/鍵盤都沒反應），要開視窗的入口一律放子選單（如 說明 → 關於）
 - Commit 格式：Conventional Commits（`feat:` / `fix:` / `docs:` …）
 
@@ -133,7 +141,9 @@ dotnet publish src/STPViewer -c Release -o publish/STPViewer
   `--align-test`（三點對齊剛體變換 + ModOp↔Matrix3D 一致性）、`--make-dxf`（產測試檔）、
   `--export-test <in.stp> <out.stp>`（STEP 匯出往返：寫出→回讀比對實體數）、
   `--stl-export-test [file.stp]`（STL binary/ASCII 往返 + 退化濾除；給 stp 加測 B-rep 精細重算）、
-  `--make-stl <out.stl> [triCount]`（產測試用 binary STL，預設 150 萬三角形，量 STL 匯入效能用）
+  `--make-stl <out.stl> [triCount]`（產測試用 binary STL，預設 150 萬三角形，量 STL 匯入效能用）、
+  `--localization-test`（語言包載入/回退/壞檔容錯 + VM 即時切換；改 i18n 或加文字要跑）
+- Linux 也能編 Windows 版：`~/.dotnet/dotnet build/publish ... -p:EnableWindowsTargeting=true`（SmokeTest 是 net8.0-windows，只能在 Windows 跑）
 - **絕不要用 PowerShell regex/Set-Content 改 .cs 檔** — Windows PowerShell 5.1 預設編碼會把 UTF-8 中文弄成亂碼（已踩過，靠反編譯 DLL 救回）。文字取代一律用 Edit 工具
 
 ## For_AI/

@@ -100,8 +100,12 @@ STPViewer/
         ├── STPViewer.csproj           # net8.0-windows, UseWPF
         ├── App.xaml / App.xaml.cs     # 全域例外處理（log + 訊息框存活；%LOCALAPPDATA%\STPViewer\error.log）
         ├── MainWindow.xaml / .cs      # 版面 + 滑鼠拾取事件
+        ├── i18n/                      # 語言包 en / zh_tw / zh_cn.json（輸出到 exe 旁；啟動時掃描，免重編）
+        ├── Localization/
+        │   └── LocExtension.cs        # XAML {loc:Loc Key} → 綁定 LocalizationService[Key]（切語言即時更新）
         │
         ├── Models/
+        │   ├── LanguageDefinition.cs  # 一個語言包（Id = 檔名、Key = 顯示名、Data = 翻譯表）
         │   ├── FaceInfo.cs            # GeometryModel3D ↔ B-rep Face 對照（STL 為 null）
         │   ├── MeasureMode.cs         # enum: None/Point/Distance/Edge/Face/Circle/Angle/FaceDistance/Align/Align3/Drag/Interference/Volume
         │   ├── MeasurementResult.cs   # 量測結果（雙單位 lambda、3D 標籤同步）
@@ -112,6 +116,8 @@ STPViewer/
         │
         ├── Services/
         │   ├── StepImportService.cs   # STEP/STL/DXF 讀檔 + 三角化 + 裝配樹
+        │   ├── StlMeshReader.cs       # STL 直接解析（binary/ASCII，不經 CADability；v0.7.1）
+        │   ├── LocalizationService.cs # 語言包載入、目前語言、[key] 查詢（缺字回退英文）、LanguageChanged
         │   ├── MeasurementService.cs  # 點/線/面/圓/角度/面距/體積質心 幾何計算（吸附含圓心）
         │   ├── InterferenceService.cs # 干涉檢查：三角形-三角形相交(區間法)+均勻網格加速；無干涉時近似最小間隙
         │   ├── RigidAlign.cs          # 三點對齊/旋轉的剛體變換數學（Matrix3D列向量 ↔ ModOp行向量 轉換）
@@ -126,6 +132,8 @@ STPViewer/
             ├── MainViewModel.Section.cs       # 剖面（v0.4.0 起背景平行裁切）
             ├── MainViewModel.Interference.cs  # 干涉檢查指令
             ├── MainViewModel.Export.cs        # CSV / 截圖 / STEP / STL 匯出
+            ├── MainViewModel.Localization.cs  # 語言切換指令 + 切換後刷新量測/樹/狀態列文字
+            ├── QuickBarViewModel.cs           # 快速列按鈕註冊表（key/文字 key/預設值）
             ├── StlExportViewModel.cs          # STL 匯出對話框 VM（選項 + 即時摘要）
             └── ModelNodeViewModel.cs          # 裝配樹節點（可見性/顏色 cascade）
 ```
@@ -201,7 +209,8 @@ class MeasurementResult
 | 快速鍵 | P 點 / D 距離 / E 邊 / F 面 / C 圓 / A 角度 / M 面距；同鍵再按=退出；Esc=取消進行中量測→退出模式 | |
 | 樹操作 | 搜尋框過濾節點名稱；右鍵：只顯示此節點 / 反轉顯示 / 全部顯示 / 量體積質心 | tooltip 含外形尺寸 L×W×H |
 | 體積/質心 | 樹節點右鍵「⚖ 量體積/質心」 | signed volume（封閉實體）+ 質心標記 + AABB 外形尺寸 |
-| 設定/MRU | 自動記住視窗位置大小、單位；「▾」最近 10 個檔案 | %LOCALAPPDATA%\STPViewer\settings.json |
+| 語言 | 視圖 → 語言 / 快速列下拉：English、繁體中文、简体中文（v0.8.0） | 即時切換（含既有量測文字）並記住；`i18n/*.json` 加檔即新增語言，缺字回退英文 |
+| 設定/MRU | 自動記住視窗位置大小、單位、語言；「▾」最近 10 個檔案 | %LOCALAPPDATA%\STPViewer\settings.json |
 
 支援格式：`.stp` / `.step`（B-rep + 裝配樹）、`.stl`（純網格，僅點/距離/角度/面距量測）、
 `.dxf`（線架構檢視）。**IGES 不支援**（CADability 無 IGES reader）。
@@ -486,6 +495,27 @@ WPF retained-mode 每幀重走 visual tree → frame rate 崩。瀏覽模式因�
 
 **驗收：** 選單所有功能可用（checkable 與工具列 toggle 同步）；快速列勾選即時增減、重開保留；
 既有快速鍵 P/D/E/F/C/A/M + Esc 不受影響
+
+---
+
+## Development Phases — 第九輪（多語系 v0.8.0）
+
+### Phase 17 — 執行期語言包 + 即時切換（工作量：L；外部貢獻 PR #1 by @CarmJos）
+
+**問題：** 介面字串全部寫死繁中，非中文使用者無法使用；新增語言要改程式重編。
+
+- [x] **語言包**：`i18n/*.json`（`key` = 選單顯示名、`data` = key → 譯文）複製到 exe 旁；
+      啟動時 `LocalizationService` 掃描，檔名即語言 Id（`zh_cn.json` → `zh_cn`）；壞檔/重複 Id 略過記 Trace
+- [x] **查詢與回退**：`LocalizationService[key]` → 目前語言 → 英文 → key 本身；`Format` 格式錯誤時回退英文格式
+- [x] **XAML**：`{loc:Loc Key}`（`LocExtension` = 綁 `LocalizationService.Instance[Key]`，`Item[]` 變更即時刷新）
+- [x] **程式內文字**：狀態列 `SetStatus(() => Get/Format(...))`、量測/樹節點文字延後產生，
+      `LanguageChanged` → `RefreshLocalizedText()` 重算（與 mm⇄inch 同一套延後產生模式）
+- [x] **初始語言**：settings.json `Language`，null → 依系統 UI 語系（zh-Hant/TW/HK/MO → zh_tw，其他 zh → zh_cn）
+- [x] 關於視窗版本紀錄改為 key（`Ui.About.ReleaseXYZ.Title/ChangeN`），三語各一份
+- [x] SmokeTest `--localization-test`：語系解析（zh-Hans/Hant/TW…）、缺字/格式錯回退英文、壞檔容錯、
+      內建語言包格式參數一致、VM 切語言後既有量測/3D 標籤/快速列即時更新
+
+**驗收：** 三語切換即時生效（含已存在的量測結果與狀態列）、重開保留；刪掉某語言檔中的 key 時顯示英文不崩潰
 
 ---
 
